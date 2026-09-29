@@ -83,6 +83,16 @@ export class Actors {
   private creeps = new Map<number, CreepView>();
   private hpMats = new Map<number, SpriteMaterial>();
 
+  /** Drops every view; used when a new run starts (entity ids restart). */
+  clear() {
+    this.group.clear();
+    this.towers.clear();
+    this.pending.clear();
+    this.creeps.clear();
+    for (const m of this.hpMats.values()) m.dispose();
+    this.hpMats.clear();
+  }
+
   towerWorldPos(id: number) {
     return this.towers.get(id)?.root.position;
   }

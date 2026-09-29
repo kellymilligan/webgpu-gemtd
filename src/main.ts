@@ -24,6 +24,10 @@ async function boot() {
   if (seed) {
     ctl = new Controller();
     ctl.newGame(seed);
+    // Drop the param so a refresh resumes this run instead of restarting it.
+    params.delete('seed');
+    const qs = params.toString();
+    history.replaceState(null, '', location.pathname + (qs ? `?${qs}` : '') + location.hash);
   } else ctl = Controller.fromSave() ?? new Controller();
   (window as unknown as { facet: unknown }).facet = { ctl, view };
 

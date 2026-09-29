@@ -51,6 +51,7 @@ export class SceneView {
   private lastGround: Route | null = null;
   private lastPreview: Route | null = null;
   private heartPulse = 0;
+  private runId = 0;
   backend = 'WebGPU';
 
   constructor(private canvas: HTMLCanvasElement, forceWebGL = false) {
@@ -128,6 +129,11 @@ export class SceneView {
     this.light.approach(PRESETS[this.phase], 1 - Math.exp(-dt * 0.8));
     this.applyLighting();
 
+    if (ctl.runId !== this.runId) {
+      this.runId = ctl.runId;
+      this.actors.clear();
+      this.vfx.clear();
+    }
     const events = ctl.drainEvents();
     for (const e of events) if (e.type === 'leak') this.heartPulse = 1;
     this.vfx.handle(events, this.light.glow);

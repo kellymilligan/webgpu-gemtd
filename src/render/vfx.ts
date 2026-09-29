@@ -83,6 +83,13 @@ export class Vfx {
   private tmpB = new Vector3();
   private q = new Quaternion();
 
+  clear() {
+    for (const e of this.effects) e.mat.dispose();
+    this.effects = [];
+    this.projectiles.clear();
+    this.group.clear();
+  }
+
   handle(events: GameEvent[], glow: number) {
     const boost = 0.6 + glow * 0.5;
     for (const e of events) {

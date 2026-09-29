@@ -50,6 +50,21 @@ export function App({ ctl, backend }: { ctl: Controller; backend: string }) {
 function TopBar({ ctl, s }: { ctl: Controller; s: GameState }) {
   const phase = phaseForWave(s.wave);
   const speeds: Speed[] = [1, 2, 4];
+  const [confirmNew, setConfirmNew] = useState<{ wasPaused: boolean } | null>(null);
+  const openConfirm = () => {
+    setConfirmNew({ wasPaused: ctl.paused });
+    ctl.paused = true;
+    ctl.notify(true);
+  };
+  const closeConfirm = () => {
+    if (confirmNew) ctl.paused = confirmNew.wasPaused;
+    setConfirmNew(null);
+    ctl.notify(true);
+  };
+  const restart = (seed?: string) => {
+    setConfirmNew(null);
+    ctl.newGame(seed);
+  };
   return (
     <>
       <div class="panel topleft">
@@ -82,7 +97,29 @@ function TopBar({ ctl, s }: { ctl: Controller; s: GameState }) {
         <button class={`icon wide ${ctl.codexOpen ? 'on' : ''}`} onClick={() => ctl.toggleCodex()} title="Recipe codex (C)">
           Codex
         </button>
+        <button class="icon wide" onClick={openConfirm} title="Start a new run">
+          New run
+        </button>
       </div>
+      {confirmNew && (
+        <div class="modal" onClick={closeConfirm}>
+          <div class="panel gameover" onClick={(e) => e.stopPropagation()}>
+            <h2>Start a new run?</h2>
+            <p class="dim">
+              Your current run (wave {s.wave}, seed <b>{s.seed}</b>) will be abandoned.
+            </p>
+            <div class="row">
+              <button class="primary" onClick={() => restart()}>
+                New run
+              </button>
+              <button onClick={() => restart(s.seed)} title="Same gem draws, from wave 1">
+                Restart this seed
+              </button>
+              <button onClick={closeConfirm}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

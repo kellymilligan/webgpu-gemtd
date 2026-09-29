@@ -43,6 +43,8 @@ export class Controller {
   codexOpen = false;
   pathLength = 0;
   version = 0;
+  /** Bumped on every new game so views can drop per-run caches. */
+  runId = 0;
   private listeners = new Set<() => void>();
   private acc = 0;
   private events: GameEvent[] = [];
@@ -77,9 +79,13 @@ export class Controller {
 
   newGame(seed = randomSeed()) {
     this.state = createGame(seed);
+    this.runId++;
     this.selection = null;
     this.hover = null;
     this.acc = 0;
+    this.paused = false;
+    this.codexOpen = false;
+    this.events = [];
     this.pathLength = currentPathLength(this.state);
     this.save();
     this.notify(true);
