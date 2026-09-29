@@ -1,0 +1,211 @@
+# Design Direction (draft v0.1)
+
+A browser-native, isometric 3D tower defence built on the formula of Bryan K's
+*Gem TD* for Warcraft III: random gem draws, keep-one-of-five, a maze you build
+from your own leftovers, and recipes. We keep the formula and build a new
+world, look and feel on top of it.
+
+Status: **draft, pending sign-off on the open questions at the bottom.**
+
+---
+
+## 1. Pillars
+
+1. **The gamble and the maze are one decision.** Every gem you place is both a
+   possible tower and a permanent wall. This is the heart of Gem TD, and we
+   won't dilute it.
+2. **Beautiful at a glance, readable in a fight.** We aim for Dota 2-level
+   fidelity, but every effect has to say *what* it is and *who* it hits.
+3. **Respect the player's time.** Modern QoL is standard: speed controls,
+   previews, a codex and stats. The randomness should hurt, but the UI never
+   should.
+4. **Deterministic core.** The simulation is seeded and reproducible from the
+   start, so replays, daily seeds and multiplayer come almost for free.
+
+## 2. World and theme (working title: **FACET**)
+
+A sunlit, overgrown highland valley where an ancient crystal seam breaks the
+surface. Each build phase you **unearth** gems from the ground. The gems you
+don't keep **calcify into mossy stone** outcrops, the rocks of the original.
+Over a run, moss, ferns and flowers creep over them, so your maze literally
+grows into a garden.
+
+- **The Heart:** a large crystal at the exit. Lives are shown in the world as
+  fractures spreading through it, alongside the HUD counter.
+- **The Blight:** creatures of chitin, bark and corrupted stone drawn to the
+  Heart.
+  - *Ground:* beetles, crawling root-things, armoured stone tortoises, fast
+    skittering swarms.
+  - *Air:* moths, lantern wisps, gliding seed-pods.
+  - *Bosses:* large set pieces, such as a moss-backed colossus or a moth
+    queen.
+- **Checkpoints:** standing-stone waystones that glow as the path passes
+  through them.
+
+Alternative themes to consider: an *underground geode cavern* (moody, lit by
+the gems themselves) or a *sky-archipelago* (floating islands, strong
+silhouettes). The valley has the most room for vegetation and daylight
+beauty, so it's the recommendation.
+
+## 3. Core rules (the homage)
+
+| Rule | Kept from Gem TD | Notes |
+|---|---|---|
+| 5 gems per build phase, random type | ✔ | Uniform over 8 families |
+| Quality ladder | ✔ | Renamed grades, e.g. Chipped → Flawed → Clear → Flawless → Perfect |
+| Keep one; the rest become stone | ✔ | Stone blocks paths and is removable for gold |
+| Combine 2 identical → +1 grade, 4 → +2 | ✔ | Only among the current phase's gems |
+| Recipes from the current phase's gems | ✔ | **Re-authored** recipe set (see §4) |
+| Special tower upgrades in later phases | ✔ | Upgrade path per special |
+| Gold buys better grade odds | ✔ | Core economic decision |
+| Checkpoint route, no full blocking | ✔ | Placement that would block is rejected |
+| Air ignores the maze | ✔ | Flies straight between waystones |
+| ~50 waves with bosses, lives pool | ✔ | Tuned fresh |
+
+### Gem families (identity, silhouette, projectile)
+
+Each family has a **distinct cut and silhouette**, so it's readable at a
+glance and colour-blind safe. Higher grades get larger, clearer, more
+faceted and more luminous gems on more elaborate plinths.
+
+| Family | Role | Cut / silhouette | Projectile / effect |
+|---|---|---|---|
+| Ruby | Splash | Oval brilliant | Molten shard lobbed in an arc; bursts into embers and a scorch decal |
+| Sapphire | Slow | Cushion cut | Frost lance; target gets rime crystals and a frosted tint |
+| Emerald | Poison | Step (emerald) cut | Venom droplet; lingering green motes and a sickly shimmer on target |
+| Topaz | Multi-target | Pear cut | Forking amber lightning that splits across targets |
+| Diamond | Burst, crits, ground | Round brilliant | Near-instant prismatic beam; crits split into a spectrum flash |
+| Amethyst | Long range, air | Tall hexagonal crystal cluster | Homing violet comet with a long ribbon trail |
+| Opal | Aura (attack speed) | Smooth cabochon, play-of-colour shader | No projectile; slow iridescent pulse rings over buffed towers |
+| Aquamarine | Very fast, short range | Hexagonal prism | Rapid stream of water needles with splash droplets |
+
+### Candidate new mechanics (optional, to be decided after playtest)
+
+- **Resonance:** small bonuses for adjacent gems of complementary families,
+  which rewards deliberate placement.
+- **Waystone modifiers:** occasional waves with a twist (hasted, armoured,
+  splitting) shown one wave ahead.
+
+We only add these once the pure formula is playable and fun on its own.
+
+## 4. Recipes
+
+We keep the *shape* of the original (about 13 specials, 3–4 ingredients each,
+spread from early Chipped recipes to late Perfect ones), but write our own
+names, ingredients and signature mechanics. All recipes live in a data table
+so we can rebalance them without code changes. A draft table comes after the
+grey-box milestone.
+
+## 5. Quality of life
+
+- **Live path preview:** hovering a tile shows the new route and the change
+  in path length (+/− tiles) before you place.
+- **Blocking feedback:** an invalid tile shows *why*: it would cut off a
+  given waystone.
+- **Recipe codex:** always available. Recipes you can make from this phase's
+  gems are highlighted, and "one gem away" hints are shown.
+- **Keep screen:** clearly lists every option (keep any single gem, each
+  possible combine, each possible recipe) with stat previews.
+- **Next-wave preview:** type (ground, air, boss, fast, armoured), count and
+  HP.
+- **Speed control:** pause, 1×, 2× and 4×. Pause is allowed any time in solo
+  play.
+- **Tower info:** DPS, kills, damage dealt, range ring and targeting
+  priority (first, last, strongest, fastest, air).
+- **Autosave and resume,** a **seeded daily run,** and an **end-of-run
+  summary** with the damage breakdown and maze length over time.
+- **Undo the last placement** during a build phase, *before* its gem is
+  revealed. We need to decide whether gems are revealed on placement (see
+  open questions).
+- **Keyboard shortcuts,** rebindable. Full mouse-only play, with touch
+  planned for later.
+
+## 6. Visual and audio targets
+
+- **Camera:** isometric-style perspective (narrow FOV), smooth pan and zoom,
+  and a limited orbit that snaps back to the classic angle.
+- **Lighting:** PBR, a warm directional sun with soft cascaded shadows, sky
+  or IBL ambient, ambient occlusion, bloom, filmic tone mapping, colour
+  grading and light atmospheric haze.
+- **Gems:** a custom gem shader with transmission and refraction, chromatic
+  dispersion, internal facet reflections (baked facet normals or a cubemap
+  trick), an emissive core that grows with grade, and sparkle glints.
+- **Vegetation:** GPU-instanced grass, ferns and flowers with wind sway that
+  bend away from creeps, plus hero trees and rocks around the play area. Moss
+  grows over stones through the run.
+- **Creeps:** skinned and animated, with hit reactions, status tints (frost,
+  poison, burn) and satisfying deaths (shatter or dissolve).
+- **VFX:** GPU particles through compute shaders, ribbons and trails,
+  decals, and a signature impact effect for each family.
+- **UI:** a minimal HUD with lives, gold and wave in one corner and the
+  phase or action prompt at the bottom centre. Contextual panels appear only
+  when needed. Frosted glass, restrained typography, no chunky frames.
+- **Audio:** each gem family gets its own tonal voice, with ambient valley
+  sounds that fade as the Blight advances.
+- **Performance:** 60 fps on a mid-range laptop at "Medium", with quality
+  presets (Low to Ultra).
+
+## 7. Technical architecture
+
+```
+src/
+  sim/      Pure TypeScript, deterministic, no rendering imports
+            grid, pathing, draw/keep/combine/recipes, waves, combat, economy
+  data/     gems, grades, recipes, waves, balance tables (JSON/TS)
+  render/   three.js WebGPURenderer + TSL: scene, gem shader, vegetation,
+            creeps, VFX (compute particles), post-processing
+  ui/       lightweight DOM overlay (HUD, keep screen, codex)
+  audio/
+  app/      game loop, input, save/load, settings
+```
+
+- **Language and build:** TypeScript, Vite, Vitest for sim tests.
+- **Renderer:** **three.js `WebGPURenderer` with TSL node materials.** It is
+  native WebGPU with compute and a node-based post-processing stack, falls
+  back to WebGL2 automatically, and has mature glTF and skinned animation
+  support. Raw WebGPU would cost months of engine work before we could
+  reach the visual goal. We drop to raw WGSL through TSL/compute wherever we
+  need custom work.
+- **Simulation:** fixed timestep (e.g. 30 Hz) with render interpolation and a
+  seeded PRNG. All randomness comes from the sim RNG, and no float
+  behaviour depends on the renderer.
+- **Pathing:** grid BFS or flow field for each waystone leg, recomputed on
+  placement. Validation runs the same search on a hypothetical grid.
+- **Multiplayer later:**
+  - **Race mode:** every player gets the same seed and plays their own
+    maze. Only inputs and progress are shared, so a small relay server is
+    enough.
+  - Deterministic input replays make validation and spectating
+    straightforward.
+
+## 8. Roadmap
+
+1. **Scaffold:** Vite, TypeScript, three WebGPU, the sim/render split and
+   CI (tests and typecheck).
+2. **Grey-box gameplay:** the full loop with placeholder shapes on a grid,
+   path preview, draw, keep, combine, waves, gold, odds upgrades and lives.
+   *Goal: fun with cubes.*
+3. **Content pass:** the full tower stats, the re-authored recipe table, the
+   wave table and a balance simulator (headless runs).
+4. **Art pass I:** terrain, lighting, post-processing, the gem shader and gem
+   cuts, and vegetation.
+5. **Art pass II:** creeps and animation, the projectile and impact VFX
+   families, and the Heart.
+6. **UI, QoL and audio polish:** codex, stats, saves, settings and the daily
+   seed.
+7. **Multiplayer:** race mode.
+
+## 9. Open questions
+
+1. **Theme:** is the overgrown valley ("FACET") the right direction, or would
+   you prefer the geode cavern or sky islands?
+2. **Reveal timing:** in the original, a gem's type is revealed when it is
+   placed. Keep that (it's the tension), or let players see all 5 draws
+   first and then place them (more strategic, less gamble)? This could be a
+   mode toggle.
+3. **Art sourcing:** gems, terrain and VFX can be mostly procedural or
+   shader-based. Creeps and trees need real models. Options are CC0 packs to
+   start (e.g. Quaternius, KayKit), purchased asset packs, commissioned art,
+   or AI-generated meshes. Which are you comfortable with?
+4. **Target hardware:** is "mid-range laptop at 60 fps" the right bar, or is
+   desktop GPU first acceptable?
