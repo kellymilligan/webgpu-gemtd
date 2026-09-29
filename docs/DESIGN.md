@@ -1,11 +1,11 @@
-# Design Direction (draft v0.1)
+# Design Direction (v0.2)
 
 A browser-native, isometric 3D tower defence built on the formula of Bryan K's
 *Gem TD* for Warcraft III: random gem draws, keep-one-of-five, a maze you build
 from your own leftovers, and recipes. We keep the formula and build a new
 world, look and feel on top of it.
 
-Status: **draft, pending sign-off on the open questions at the bottom.**
+Status: **direction agreed; grey-box prototype built** (see §10 for decisions).
 
 ---
 
@@ -195,17 +195,50 @@ src/
    seed.
 7. **Multiplayer:** race mode.
 
-## 9. Open questions
+## 9. Decisions (agreed)
 
-1. **Theme:** is the overgrown valley ("FACET") the right direction, or would
-   you prefer the geode cavern or sky islands?
-2. **Reveal timing:** in the original, a gem's type is revealed when it is
-   placed. Keep that (it's the tension), or let players see all 5 draws
-   first and then place them (more strategic, less gamble)? This could be a
-   mode toggle.
-3. **Art sourcing:** gems, terrain and VFX can be mostly procedural or
-   shader-based. Creeps and trees need real models. Options are CC0 packs to
-   start (e.g. Quaternius, KayKit), purchased asset packs, commissioned art,
-   or AI-generated meshes. Which are you comfortable with?
-4. **Target hardware:** is "mid-range laptop at 60 fps" the right bar, or is
-   desktop GPU first acceptable?
+1. **Theme:** the overgrown valley ("FACET").
+   - **Time of day rotates by level:** day → dusk → night → dawn, three waves
+     each.
+   - Each phase has its own lighting, glow level and creep roster:
+     - **Day:** sparkly gems, beetles.
+     - **Dusk:** warm light, tortoises and moths.
+     - **Night:** heavy glow, wisps and rootlings.
+     - **Dawn:** a mix.
+   - Some specials react to the light: Moonstone is fierce at night, and
+     Alexandrite changes behaviour between day and night.
+2. **Reveal timing:** the original, where each gem is revealed as it's
+   placed. The tension and the need for flexible placement are core to the
+   game.
+3. **Art:** CC0 packs to start (e.g. Quaternius, KayKit). A later pass may
+   use paid or generated assets to unify the look. Creeps generated in code
+   are an option depending on how stylised we go.
+4. **Performance:** 60 fps on mid-range hardware is the bar. The aim is
+   "beautiful and interesting in a web context", not literally Dota 2.
+
+## 10. Current state (grey-box milestone)
+
+- **Sim:** the complete loop runs in `src/sim`:
+  - draw, keep, combine, recipes and special upgrades;
+  - stones, pathing with block prevention, and waves with the day cycle;
+  - combat effects: splash, slow, poison, multi-target, chain, crit, auras
+    and armour shred;
+  - odds upgrades, stone removal, autosave and resume.
+- **Render:** three.js WebGPU, with an automatic WebGL 2 fallback:
+  - a gem cut per family with a physical transmissive material;
+  - mossy stones, waystones and the Heart;
+  - time-of-day lighting with bloom;
+  - primitive creep silhouettes;
+  - projectiles, beams, chain lightning, hit flashes and death bursts.
+- **UI:**
+  - HUD;
+  - odds card;
+  - build prompt with live path-length change;
+  - next-wave card;
+  - keep panel with stat previews;
+  - tower panel with a targeting choice;
+  - codex with "Ready" and "One away" highlights;
+  - toasts and the game-over summary.
+- **Balance:** a greedy headless bot reaches a median of wave ~38
+  (`npm run balance`). The early game is spiky, and the draft recipe stats
+  still need a real pass.

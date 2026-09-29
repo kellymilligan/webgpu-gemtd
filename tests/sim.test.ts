@@ -63,7 +63,7 @@ describe('placement', () => {
     for (const [x, y] of ring) {
       if (s.phase === 'choose') {
         applyCommand(s, { type: 'keep', option: keepOptionsFor(s, s.pending[0].id)[0] });
-        while (s.phase === 'wave') step(s);
+        while ((s.phase as string) === 'wave') step(s);
       }
       const r = checkPlacement(s, x, y);
       if (placed === ring.length - 1) {
