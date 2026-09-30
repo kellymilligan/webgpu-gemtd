@@ -1,4 +1,6 @@
-import { TOTAL_WAVES, phaseForWave, waveDef } from './data/waves';
+import { ARCHETYPES } from './data/creeps';
+import type { Archetype } from './data/creeps';
+import { TOTAL_WAVES, childHp, phaseForWave, spawnSchedule, waveDef } from './data/waves';
 import { nextFloat } from './rng';
 import { effectiveAttack, towerDef } from './towers';
 import type { AttackDef, Creep, GameEvent, GameState, Route, Tower } from './types';
@@ -7,33 +9,47 @@ export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
 
 export function beginSpawns(s: GameState) {
-  const def = waveDef(s.wave);
-  s.spawn = { remaining: def.count, timer: 0, interval: def.archetype.interval };
+  const def = waveDef(s.seed, s.wave);
+  s.spawn = { elapsed: 0, next: 0, total: spawnSchedule(def).length };
 }
 
-function spawnCreep(s: GameState) {
-  const def = waveDef(s.wave);
-  const arch = def.archetype;
-  const route = arch.air ? s.airRoute : s.groundRoute;
-  const x = route.points[0];
-  const y = route.points[1];
-  s.creeps.push({
+function routeFor(s: GameState, air: boolean): Route {
+  return air ? s.airRoute : s.groundRoute;
+}
+
+interface SpawnSpec {
+  arch: Archetype;
+  hp: number;
+  armor: number;
+  bounty: number;
+  lifeCost: number;
+  speed: number;
+  elite: boolean;
+  dist: number;
+}
+
+function spawnCreep(s: GameState, spec: SpawnSpec): Creep {
+  const { arch } = spec;
+  const route = routeFor(s, arch.air);
+  const shield = arch.abilities.shield ? Math.round(spec.hp * arch.abilities.shield) : 0;
+  const c: Creep = {
     id: s.nextId++,
     archetype: arch.id,
     air: arch.air,
-    hp: def.hp,
-    maxHp: def.hp,
-    armor: def.armor,
-    speed: arch.speed,
+    hp: spec.hp,
+    maxHp: spec.hp,
+    armor: spec.armor,
+    speed: spec.speed,
+    baseSpeed: spec.speed,
     regen: arch.regen,
-    bounty: def.bounty,
-    lifeCost: arch.lifeCost,
-    dist: 0,
+    bounty: spec.bounty,
+    lifeCost: spec.lifeCost,
+    dist: Math.min(spec.dist, route.total - 0.01),
     seg: 0,
-    x,
-    y,
-    px: x,
-    py: y,
+    x: route.points[0],
+    y: route.points[1],
+    px: 0,
+    py: 0,
     slowAmount: 0,
     slowTime: 0,
     poisonDps: 0,
@@ -41,11 +57,42 @@ function spawnCreep(s: GameState) {
     poisonSource: -1,
     shredAmount: 0,
     shredTime: 0,
+    shield,
+    maxShield: shield,
+    // Stagger ability timers so packs don't act in lockstep.
+    abilityCd: 1 + ((s.nextId * 0.37) % 1.5),
+    burrowTime: 0,
+    haste: 0,
+    enraged: false,
+    elite: spec.elite,
+  };
+  placeOnRoute(c, route);
+  c.px = c.x;
+  c.py = c.y;
+  s.creeps.push(c);
+  return c;
+}
+
+function spawnChild(s: GameState, parent: Creep, id: string, offset: number) {
+  const arch = ARCHETYPES[id];
+  const air = arch.air;
+  // A ground child of a flyer (or vice versa) starts its own route from the beginning.
+  const dist = air === parent.air ? Math.max(0, parent.dist - offset) : 0;
+  spawnCreep(s, {
+    arch,
+    hp: childHp(s.wave, arch),
+    armor: arch.armor + Math.floor(s.wave / 8),
+    bounty: Math.max(1, Math.round((1 + s.wave * 0.2) * arch.bountyMult)),
+    lifeCost: arch.lifeCost,
+    speed: arch.speed,
+    elite: false,
+    dist,
   });
 }
 
 function placeOnRoute(c: Creep, route: Route) {
   const { lengths, points } = route;
+  if (lengths[c.seg] > c.dist) c.seg = 0;
   while (c.seg < lengths.length - 2 && lengths[c.seg + 1] <= c.dist) c.seg++;
   const segLen = lengths[c.seg + 1] - lengths[c.seg];
   const t = segLen > 0 ? Math.min(1, (c.dist - lengths[c.seg]) / segLen) : 0;
@@ -59,8 +106,23 @@ export function armorMultiplier(armor: number): number {
   return Math.min(1.5, 1 - 0.05 * armor);
 }
 
+function effectiveArmor(c: Creep): number {
+  const a = ARCHETYPES[c.archetype];
+  let armor = c.armor - c.shredAmount;
+  if (a.abilities.shellBreak && c.hp < c.maxHp * 0.5) armor -= a.abilities.shellBreak;
+  return armor;
+}
+
 function damageCreep(s: GameState, c: Creep, amount: number, tower: Tower | undefined, events: GameEvent[]) {
   if (c.hp <= 0 || amount <= 0) return;
+  if (c.shield > 0) {
+    const absorbed = Math.min(c.shield, amount);
+    c.shield -= absorbed;
+    amount -= absorbed;
+    if (tower) tower.damage += absorbed;
+    if (c.shield <= 0) events.push({ type: 'shieldBreak', x: c.x, y: c.y, air: c.air });
+    if (amount <= 0) return;
+  }
   const dealt = Math.min(amount, c.hp);
   c.hp -= amount;
   if (tower) tower.damage += dealt;
@@ -70,15 +132,18 @@ function damageCreep(s: GameState, c: Creep, amount: number, tower: Tower | unde
     s.stats.kills++;
     if (tower) tower.kills++;
     events.push({ type: 'death', creepId: c.id, x: c.x, y: c.y, air: c.air, archetype: c.archetype, bounty: c.bounty });
+    const split = ARCHETYPES[c.archetype].abilities.split;
+    if (split) for (let i = 0; i < split.count; i++) spawnChild(s, c, split.id, i * 0.35);
   }
 }
 
 function applyEffects(c: Creep, a: AttackDef, towerId: number) {
-  if (a.slow && (a.slow.amount > c.slowAmount || c.slowTime <= 0 || a.slow.amount === c.slowAmount)) {
+  const ab = ARCHETYPES[c.archetype].abilities;
+  if (a.slow && !ab.immuneSlow && (a.slow.amount > c.slowAmount || c.slowTime <= 0 || a.slow.amount === c.slowAmount)) {
     c.slowTime = a.slow.amount === c.slowAmount ? Math.max(c.slowTime, a.slow.duration) : a.slow.duration;
     c.slowAmount = a.slow.amount;
   }
-  if (a.poison && (a.poison.dps >= c.poisonDps || c.poisonTime <= 0)) {
+  if (a.poison && !ab.immunePoison && (a.poison.dps >= c.poisonDps || c.poisonTime <= 0)) {
     c.poisonDps = a.poison.dps;
     c.poisonTime = a.poison.duration;
     c.poisonSource = towerId;
@@ -89,12 +154,22 @@ function applyEffects(c: Creep, a: AttackDef, towerId: number) {
   }
 }
 
-const canTarget = (a: AttackDef, c: Creep) => c.hp > 0 && (a.targets === 'both' || (a.targets === 'air') === c.air);
+const targetable = (c: Creep) => c.hp > 0 && c.burrowTime <= 0;
+const canTarget = (a: AttackDef, c: Creep) => targetable(c) && (a.targets === 'both' || (a.targets === 'air') === c.air);
+
+/** A direct hit may be dodged by evasive creeps. */
+function evades(s: GameState, c: Creep, events: GameEvent[]): boolean {
+  const ev = ARCHETYPES[c.archetype].abilities.evasion;
+  if (!ev || nextFloat(s.rng) >= ev) return false;
+  events.push({ type: 'miss', x: c.x, y: c.y, air: c.air });
+  return true;
+}
 
 function hit(s: GameState, tower: Tower | undefined, a: AttackDef, target: Creep | undefined, x: number, y: number, damage: number, crit: boolean, air: boolean, events: GameEvent[]) {
   const towerId = tower?.id ?? -1;
   if (target && target.hp > 0) {
-    damageCreep(s, target, damage * armorMultiplier(target.armor - target.shredAmount), tower, events);
+    if (evades(s, target, events)) return;
+    damageCreep(s, target, damage * armorMultiplier(effectiveArmor(target)), tower, events);
     applyEffects(target, a, towerId);
   }
   if (a.splash) {
@@ -104,7 +179,7 @@ function hit(s: GameState, tower: Tower | undefined, a: AttackDef, target: Creep
       const dx = c.x - x;
       const dy = c.y - y;
       if (dx * dx + dy * dy > r2) continue;
-      damageCreep(s, c, damage * a.splash.fraction * armorMultiplier(c.armor - c.shredAmount), tower, events);
+      damageCreep(s, c, damage * a.splash.fraction * armorMultiplier(effectiveArmor(c)), tower, events);
       applyEffects(c, a, towerId);
     }
   }
@@ -152,20 +227,19 @@ function selectTargets(s: GameState, t: Tower, a: AttackDef): Creep[] {
     const dy = c.y - cy;
     const d2 = dx * dx + dy * dy;
     if (d2 > r2) continue;
-    const remaining = (c.air ? s.airRoute.total : s.groundRoute.total) - c.dist;
+    const remaining = routeFor(s, c.air).total - c.dist;
     let key: number;
     switch (t.targeting) {
       case 'first': key = remaining; break;
       case 'last': key = -remaining; break;
-      case 'strongest': key = -c.hp; break;
-      case 'weakest': key = c.hp; break;
+      case 'strongest': key = -(c.hp + c.shield); break;
+      case 'weakest': key = c.hp + c.shield; break;
       case 'closest': key = d2; break;
     }
     inRange.push({ c, key });
   }
   inRange.sort((p, q) => p.key - q.key || p.c.id - q.c.id);
-  const n = a.multi ?? 1;
-  return inRange.slice(0, n).map((e) => e.c);
+  return inRange.slice(0, a.multi ?? 1).map((e) => e.c);
 }
 
 function fire(s: GameState, t: Tower, a: AttackDef, targets: Creep[], events: GameEvent[]) {
@@ -185,22 +259,79 @@ function fire(s: GameState, t: Tower, a: AttackDef, targets: Creep[], events: Ga
   }
 }
 
+function runSpawner(s: GameState) {
+  const sp = s.spawn;
+  if (!sp || sp.next >= sp.total) return;
+  sp.elapsed += DT;
+  const def = waveDef(s.seed, s.wave);
+  const schedule = spawnSchedule(def);
+  while (sp.next < sp.total && schedule[sp.next].time <= sp.elapsed) {
+    const g = def.groups[schedule[sp.next].group];
+    spawnCreep(s, { arch: g.archetype, hp: g.hp, armor: g.armor, bounty: g.bounty, lifeCost: g.lifeCost, speed: g.speed, elite: g.elite, dist: 0 });
+    sp.next++;
+  }
+}
+
+/** Auras, heals, broods, blinks and burrows. */
+function runAbilities(s: GameState, events: GameEvent[]) {
+  for (const c of s.creeps) c.haste = 0;
+  const snapshot = s.creeps.slice();
+  for (const c of snapshot) {
+    if (c.hp <= 0) continue;
+    const ab = ARCHETYPES[c.archetype].abilities;
+    if (ab.haste) {
+      const r2 = ab.haste.radius * ab.haste.radius;
+      for (const o of snapshot) {
+        if (o === c || o.hp <= 0 || o.air !== c.air) continue;
+        const dx = o.x - c.x;
+        const dy = o.y - c.y;
+        if (dx * dx + dy * dy <= r2 && ab.haste.amount > o.haste) o.haste = ab.haste.amount;
+      }
+    }
+    if (c.burrowTime > 0) c.burrowTime = Math.max(0, c.burrowTime - DT);
+    if (!(ab.heal || ab.brood || ab.blink || ab.burrow)) continue;
+    c.abilityCd -= DT;
+    if (c.abilityCd > 0) continue;
+    if (ab.heal) {
+      c.abilityCd = ab.heal.every;
+      const r2 = ab.heal.radius * ab.heal.radius;
+      for (const o of snapshot) {
+        if (o.hp <= 0 || o.air !== c.air) continue;
+        const dx = o.x - c.x;
+        const dy = o.y - c.y;
+        if (dx * dx + dy * dy <= r2) o.hp = Math.min(o.maxHp, o.hp + o.maxHp * ab.heal.pct);
+      }
+      events.push({ type: 'heal', x: c.x, y: c.y, radius: ab.heal.radius });
+    } else if (ab.brood) {
+      c.abilityCd = ab.brood.every;
+      spawnChild(s, c, ab.brood.id, 0.2);
+    } else if (ab.blink) {
+      c.abilityCd = ab.blink.every;
+      const route = routeFor(s, c.air);
+      const fx = c.x;
+      const fy = c.y;
+      c.dist = Math.min(route.total - 0.5, c.dist + ab.blink.dist);
+      placeOnRoute(c, route);
+      c.px = c.x;
+      c.py = c.y;
+      events.push({ type: 'blink', creepId: c.id, fromX: fx, fromY: fy, x: c.x, y: c.y });
+    } else if (ab.burrow) {
+      c.abilityCd = ab.burrow.every + ab.burrow.duration;
+      c.burrowTime = ab.burrow.duration;
+      events.push({ type: 'burrow', creepId: c.id, x: c.x, y: c.y });
+    }
+  }
+}
+
 /** Advances an active wave by one tick. */
 export function stepWave(s: GameState, events: GameEvent[]) {
   const phase = phaseForWave(s.wave);
-
-  // Spawning.
-  if (s.spawn && s.spawn.remaining > 0) {
-    s.spawn.timer -= DT;
-    while (s.spawn.timer <= 0 && s.spawn.remaining > 0) {
-      spawnCreep(s);
-      s.spawn.remaining--;
-      s.spawn.timer += s.spawn.interval;
-    }
-  }
+  runSpawner(s);
 
   const towersById = new Map<number, Tower>();
   for (const t of s.towers) towersById.set(t.id, t);
+
+  runAbilities(s, events);
 
   // Creeps: status effects, then movement.
   for (const c of s.creeps) {
@@ -222,7 +353,10 @@ export function stepWave(s: GameState, events: GameEvent[]) {
       if (c.shredTime <= 0) c.shredAmount = 0;
     }
     if (c.hp <= 0) continue;
-    const route = c.air ? s.airRoute : s.groundRoute;
+    const enrage = ARCHETYPES[c.archetype].abilities.enrage;
+    if (enrage && !c.enraged && c.hp < c.maxHp * enrage.below) c.enraged = true;
+    c.speed = c.baseSpeed * (c.enraged && enrage ? enrage.speedMult : 1) * (1 + c.haste);
+    const route = routeFor(s, c.air);
     c.dist += c.speed * Math.max(0.1, 1 - c.slowAmount) * DT;
     if (c.dist >= route.total) {
       c.hp = 0;
@@ -256,9 +390,10 @@ export function stepWave(s: GameState, events: GameEvent[]) {
     p.px = p.x;
     p.py = p.y;
     const target = creepsById.get(p.targetId);
-    if (target) {
-      p.tx = target.x;
-      p.ty = target.y;
+    const live = target && target.burrowTime <= 0 ? target : undefined;
+    if (live) {
+      p.tx = live.x;
+      p.ty = live.y;
     }
     const dx = p.tx - p.x;
     const dy = p.ty - p.y;
@@ -267,7 +402,7 @@ export function stepWave(s: GameState, events: GameEvent[]) {
     if (d <= step) {
       const tower = towersById.get(p.towerId);
       const a = tower ? effectiveAttack(towerDef(tower), phase) : undefined;
-      if (a) hit(s, tower, a, target, p.tx, p.ty, p.damage, p.crit, p.air, events);
+      if (a) hit(s, tower, a, live, p.tx, p.ty, p.damage, p.crit, p.air, events);
       continue;
     }
     p.x += (dx / d) * step;
@@ -282,7 +417,7 @@ export function stepWave(s: GameState, events: GameEvent[]) {
     events.push({ type: 'gameOver', won: false });
     return;
   }
-  if (s.spawn && s.spawn.remaining === 0 && s.creeps.length === 0) {
+  if (s.spawn && s.spawn.next >= s.spawn.total && s.creeps.length === 0) {
     events.push({ type: 'waveEnd', wave: s.wave });
     s.spawn = null;
     s.projectiles = [];

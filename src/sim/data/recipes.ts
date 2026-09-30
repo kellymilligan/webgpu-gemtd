@@ -5,12 +5,19 @@ import type { Family, GemSpec, Grade, TowerDef } from '../types';
  * (early Chipped combos through to late Perfect ones) with our own
  * ingredients, mechanics and upgrade paths. Tuned via `npm run balance`.
  */
+/** A recipe ingredient: a graded gem, or an existing special gem. */
+export type Ingredient = GemSpec | { special: string };
+
+export const isSpecialIngredient = (i: Ingredient): i is { special: string } => 'special' in i;
+
 export interface SpecialDef {
   id: string;
   /** Primary family, used for colour and codex grouping. */
   family: Family;
   colour: string;
-  ingredients: GemSpec[];
+  /** Master specials are forged from other specials on the board. */
+  master?: boolean;
+  ingredients: Ingredient[];
   /** levels[0] is what the recipe makes; later entries are upgrades. */
   levels: TowerDef[];
   /** upgrades[i] is the gem that upgrades levels[i] into levels[i + 1]. */
@@ -277,6 +284,68 @@ export const SPECIALS: readonly SpecialDef[] = [
         name: 'Electric Paraiba',
         description: 'The valley hums.',
         attack: { damage: 520, range: 4.3, cooldown: 0.3, targets: 'both', projectileSpeed: 0, style: 'lightning', chain: { bounces: 4, range: 2.8, falloff: 0.82 } },
+      },
+    ],
+  },
+  {
+    id: 'sunheart',
+    family: 'ruby',
+    colour: '#ff5a1f',
+    master: true,
+    ingredients: [{ special: 'sunstone' }, { special: 'bloodstone' }, g('ruby', 4)],
+    upgrades: [],
+    levels: [
+      {
+        name: 'Sunheart',
+        description: 'A captive sun: enormous burning splash on land and air.',
+        attack: { damage: 900, range: 4.4, cooldown: 0.9, targets: 'both', projectileSpeed: 11, style: 'ember', splash: { radius: 2.4, fraction: 0.7 }, poison: { dps: 150, duration: 3 } },
+      },
+    ],
+  },
+  {
+    id: 'eclipse',
+    family: 'opal',
+    colour: '#3a2a6a',
+    master: true,
+    ingredients: [{ special: 'moonstone' }, { special: 'blackOpal' }, g('amethyst', 4)],
+    upgrades: [],
+    levels: [
+      {
+        name: 'Eclipse',
+        description: 'Darkness made solid. Vast aura; terrifying at night.',
+        attack: { damage: 1100, range: 5.5, cooldown: 0.9, targets: 'both', projectileSpeed: 12, style: 'pulse' },
+        aura: { radius: 4.5, attackSpeed: 0.6 },
+        phaseMods: { dusk: { damageMult: 1.3 }, night: { damageMult: 1.8, rangeAdd: 1 } },
+      },
+    ],
+  },
+  {
+    id: 'prismheart',
+    family: 'diamond',
+    colour: '#ffffff',
+    master: true,
+    ingredients: [{ special: 'quicksilver' }, { special: 'pinkDiamond' }, g('topaz', 4)],
+    upgrades: [],
+    levels: [
+      {
+        name: 'Prismheart',
+        description: 'Splits light into chaining, critical beams.',
+        attack: { damage: 1300, range: 4.8, cooldown: 0.8, targets: 'both', projectileSpeed: 0, style: 'prism', chain: { bounces: 5, range: 3, falloff: 0.9 }, crit: { chance: 0.3, mult: 3 } },
+      },
+    ],
+  },
+  {
+    id: 'worldroot',
+    family: 'emerald',
+    colour: '#0f8a4a',
+    master: true,
+    ingredients: [{ special: 'jade' }, { special: 'malachite' }, g('emerald', 4)],
+    upgrades: [],
+    levels: [
+      {
+        name: 'Worldroot',
+        description: 'Poisons and roots everything in its reach.',
+        attack: { damage: 480, range: 3.8, cooldown: 1.0, targets: 'both', projectileSpeed: 0, style: 'venom', multi: 99, poison: { dps: 400, duration: 4 }, slow: { amount: 0.4, duration: 2 } },
       },
     ],
   },

@@ -242,3 +242,36 @@ src/
 - **Balance:** a greedy headless bot reaches a median of wave ~38
   (`npm run balance`). The early game is spiky, and the draft recipe stats
   still need a real pass.
+
+## 11. Progression and variety (v0.3)
+
+- **Board combining:** between waves, select any gem on the board.
+  - 2 matching gems combine one grade up; 4 combine two grades up.
+  - The result stays on the tower you selected, and the consumed gems
+    calcify into stone so the maze is unchanged.
+  - Specials can be forged from board gems, and upgraded by feeding them a
+    board gem.
+  - Each grade step is roughly ×2.2 damage, so combining always beats
+    keeping two separate towers.
+- **Master gems:** Sunheart, Eclipse, Prismheart and Worldroot, forged from
+  two specials plus a Perfect gem.
+- **Visual grades:** Chipped is a rough chunk, Flawed a tumbled pebble,
+  Clear a simple cut, Flawless the family cut and Perfect a finely faceted
+  version. Clarity and polish rise with grade.
+- **World UI:** actions appear in a popover anchored to the selected gem.
+  Tags over this round's gems and badges over board towers advertise
+  combines (▲) and forges (✦). Hovering an option marks the result tile and
+  the gems it will consume.
+- **Creeps:** 47 archetypes across day, dusk, night and dawn, in three
+  tiers, built from 18 body plans.
+  - Abilities: evasion, shields, splitting, healers, haste auras, leaping,
+    burrowing, enrage, brood spawning, slow and poison immunity, and brittle
+    shells.
+  - Waves are seeded per run: packs with support creeps (support creeps
+    travel at the pack's pace), back-to-back packs, and mixed ground-and-air
+    waves.
+  - Elites appear at waves 15, 25, 35 and 45; bosses every 10 waves.
+- **Balance:**
+  - Waves 1–5 are eased, and the first air wave is at 6.
+  - Ruby now hits air, and Amethyst is stronger.
+  - The flight path brightens before air waves.

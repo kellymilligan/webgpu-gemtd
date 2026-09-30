@@ -1,9 +1,10 @@
 import { GEMS_PER_ROUND, MAX_ODDS_LEVEL, ODDS_COST, ODDS_TABLE, STONE_REMOVE_COST } from './data/economy';
 import { GRID_H, GRID_W } from './data/map';
-import { SPECIALS, SPECIALS_BY_ID } from './data/recipes';
+import { isSpecialIngredient, SPECIALS, SPECIALS_BY_ID } from './data/recipes';
+import type { Ingredient } from './data/recipes';
 import { computeGroundCells, testBlock } from './pathing';
 import { nextInt, pickWeighted } from './rng';
-import type { CommandResult, GameEvent, GameState, GemSpec, Grade, KeepOption, PendingGem, Tower } from './types';
+import type { BoardOption, CommandResult, GameEvent, GameState, GemSpec, Grade, KeepOption, PendingGem, Tower } from './types';
 import { Cell, FAMILIES, MAX_GRADE } from './types';
 
 export type PlaceCheck =
@@ -57,8 +58,10 @@ export function placeGem(s: GameState, x: number, y: number, events: GameEvent[]
 const same = (a: GemSpec, b: GemSpec) => a.family === b.family && a.grade === b.grade;
 
 /** Matches a recipe against pending gems, requiring `must` to be one of them. */
-function matchRecipe(ingredients: readonly GemSpec[], pending: readonly PendingGem[], must: PendingGem): number[] | null {
-  const mustIdx = ingredients.findIndex((ing) => same(ing, must));
+function matchRecipe(ingredients: readonly Ingredient[], pending: readonly PendingGem[], must: PendingGem): number[] | null {
+  if (ingredients.some(isSpecialIngredient)) return null;
+  const gems = ingredients as readonly GemSpec[];
+  const mustIdx = gems.findIndex((ing) => same(ing, must));
   if (mustIdx < 0) return null;
   const used = new Set<number>([must.id]);
   const consumed: number[] = [];
@@ -67,7 +70,7 @@ function matchRecipe(ingredients: readonly GemSpec[], pending: readonly PendingG
       consumed.push(must.id);
       continue;
     }
-    const m = pending.find((p) => !used.has(p.id) && same(p, ingredients[i]));
+    const m = pending.find((p) => !used.has(p.id) && same(p, gems[i]));
     if (!m) return null;
     used.add(m.id);
     consumed.push(m.id);
@@ -177,5 +180,145 @@ export function upgradeOdds(s: GameState, events: GameEvent[]): CommandResult {
   s.gold -= cost;
   s.oddsLevel++;
   events.push({ type: 'oddsUpgraded', level: s.oddsLevel });
+  return { ok: true };
+}
+
+// ── Board actions: combining towers already placed, between waves ─────────
+
+export function canUseBoard(s: GameState): boolean {
+  return s.phase === 'build' || s.phase === 'choose';
+}
+
+const matches = (t: Tower, ing: Ingredient) =>
+  isSpecialIngredient(ing) ? t.kind === 'special' && t.specialId === ing.special : t.kind === 'gem' && t.family === ing.family && t.grade === ing.grade;
+
+/** Other towers sorted nearest-first, so combines consume the closest pieces. */
+function byDistance(s: GameState, from: Tower): Tower[] {
+  return s.towers
+    .filter((o) => o !== from)
+    .map((o) => ({ o, d: (o.x - from.x) ** 2 + (o.y - from.y) ** 2 }))
+    .sort((a, b) => a.d - b.d || a.o.id - b.o.id)
+    .map((e) => e.o);
+}
+
+function matchBoardRecipe(ingredients: readonly Ingredient[], t: Tower, others: Tower[]): number[] | null {
+  const mustIdx = ingredients.findIndex((ing) => matches(t, ing));
+  if (mustIdx < 0) return null;
+  const used = new Set<number>([t.id]);
+  const consumed: number[] = [];
+  for (let i = 0; i < ingredients.length; i++) {
+    if (i === mustIdx) continue;
+    const m = others.find((o) => !used.has(o.id) && matches(o, ingredients[i]));
+    if (!m) return null;
+    used.add(m.id);
+    consumed.push(m.id);
+  }
+  return consumed;
+}
+
+/** Every between-wave action that involves this tower. */
+export function boardOptionsFor(s: GameState, towerId: number): BoardOption[] {
+  if (!canUseBoard(s)) return [];
+  const t = s.towers.find((x) => x.id === towerId);
+  if (!t) return [];
+  const others = byDistance(s, t);
+  const opts: BoardOption[] = [];
+  if (t.kind === 'gem') {
+    const twins = others.filter((o) => o.kind === 'gem' && same(o, t));
+    if (twins.length >= 1 && t.grade < MAX_GRADE) {
+      opts.push({ kind: 'boardCombine', towerId, consumed: [twins[0].id], result: { family: t.family, grade: (t.grade + 1) as Grade } });
+    }
+    if (twins.length >= 3 && t.grade + 2 <= MAX_GRADE) {
+      opts.push({ kind: 'boardCombine', towerId, consumed: twins.slice(0, 3).map((o) => o.id), result: { family: t.family, grade: (t.grade + 2) as Grade } });
+    }
+    // This gem can feed a special's upgrade.
+    for (const sp of s.towers) {
+      if (sp.kind !== 'special') continue;
+      const def = SPECIALS_BY_ID[sp.specialId!];
+      const need = def.upgrades[sp.level];
+      if (need && sp.level + 1 < def.levels.length && same(need, t)) {
+        opts.push({ kind: 'boardUpgrade', towerId: sp.id, consumed: [t.id], specialId: def.id, toLevel: sp.level + 1 });
+      }
+    }
+  } else {
+    const def = SPECIALS_BY_ID[t.specialId!];
+    const need = def.upgrades[t.level];
+    if (need && t.level + 1 < def.levels.length) {
+      const g = others.find((o) => o.kind === 'gem' && same(o, need));
+      if (g) opts.push({ kind: 'boardUpgrade', towerId, consumed: [g.id], specialId: def.id, toLevel: t.level + 1 });
+    }
+  }
+  for (const sp of SPECIALS) {
+    const consumed = matchBoardRecipe(sp.ingredients, t, others);
+    if (consumed) opts.push({ kind: 'boardRecipe', towerId, recipeId: sp.id, consumed });
+  }
+  return opts;
+}
+
+function validBoardOption(s: GameState, o: BoardOption): boolean {
+  const t = s.towers.find((x) => x.id === o.towerId);
+  if (!t) return false;
+  const consumed = o.consumed.map((id) => s.towers.find((x) => x.id === id));
+  if (consumed.some((c) => !c || c === t) || new Set(o.consumed).size !== o.consumed.length) return false;
+  const parts = consumed as Tower[];
+  switch (o.kind) {
+    case 'boardCombine': {
+      const steps = parts.length === 1 ? 1 : parts.length === 3 ? 2 : 0;
+      return (
+        steps > 0 &&
+        t.kind === 'gem' &&
+        parts.every((p) => p.kind === 'gem' && same(p, t)) &&
+        o.result.family === t.family &&
+        o.result.grade === t.grade + steps &&
+        o.result.grade <= MAX_GRADE
+      );
+    }
+    case 'boardRecipe': {
+      const sp = SPECIALS_BY_ID[o.recipeId];
+      if (!sp || parts.length !== sp.ingredients.length - 1) return false;
+      const pool = [t, ...parts];
+      const used = new Set<number>();
+      return sp.ingredients.every((ing) => {
+        const m = pool.find((p) => !used.has(p.id) && matches(p, ing));
+        if (m) used.add(m.id);
+        return !!m;
+      });
+    }
+    case 'boardUpgrade': {
+      if (t.kind !== 'special' || t.specialId !== o.specialId || o.toLevel !== t.level + 1 || parts.length !== 1) return false;
+      const def = SPECIALS_BY_ID[o.specialId];
+      const need = def.upgrades[t.level];
+      return !!need && o.toLevel < def.levels.length && parts[0].kind === 'gem' && same(parts[0], need);
+    }
+  }
+}
+
+export function applyBoard(s: GameState, o: BoardOption, events: GameEvent[]): CommandResult {
+  if (!canUseBoard(s)) return { ok: false, reason: 'Only between waves' };
+  if (!validBoardOption(s, o)) return { ok: false, reason: 'That combination is not available' };
+  const t = s.towers.find((x) => x.id === o.towerId)!;
+  const gone = new Set(o.consumed);
+  const stones = s.towers.filter((x) => gone.has(x.id)).map((x) => ({ x: x.x, y: x.y }));
+  for (const p of stones) s.grid[p.y * GRID_W + p.x] = Cell.Stone;
+  s.towers = s.towers.filter((x) => !gone.has(x.id));
+  switch (o.kind) {
+    case 'boardCombine':
+      t.grade = o.result.grade;
+      break;
+    case 'boardRecipe': {
+      const sp = SPECIALS_BY_ID[o.recipeId];
+      t.kind = 'special';
+      t.specialId = sp.id;
+      t.family = sp.family;
+      t.grade = MAX_GRADE;
+      t.level = 0;
+      s.stats.specialsMade++;
+      break;
+    }
+    case 'boardUpgrade':
+      t.level = o.toLevel;
+      break;
+  }
+  events.push({ type: 'boardAction', towerId: t.id, x: t.x, y: t.y, stones });
   return { ok: true };
 }

@@ -1,4 +1,4 @@
-import { applyKeep, pathLength, placeGem, removeStone, upgradeOdds } from './build';
+import { applyBoard, applyKeep, pathLength, placeGem, removeStone, upgradeOdds } from './build';
 import { beginSpawns, stepWave } from './combat';
 import { START_GOLD, START_LIVES } from './data/waves';
 import { GRID_H, GRID_W, WAYPOINTS } from './data/map';
@@ -12,7 +12,7 @@ export function createGame(seed: string): GameState {
   const grid = new Array<number>(GRID_W * GRID_H).fill(Cell.Empty);
   for (const w of WAYPOINTS) grid[w.y * GRID_W + w.x] = Cell.Waypoint;
   const s: GameState = {
-    version: 1,
+    version: 2,
     seed,
     rng: seedRng(seed),
     tick: 0,
@@ -46,6 +46,9 @@ export function applyCommand(s: GameState, cmd: Command): { result: CommandResul
     case 'keep':
       result = applyKeep(s, cmd.option, events);
       if (result.ok) startWave(s, events);
+      break;
+    case 'board':
+      result = applyBoard(s, cmd.option, events);
       break;
     case 'removeStone':
       result = removeStone(s, cmd.x, cmd.y, events);

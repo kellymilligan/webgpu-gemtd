@@ -129,6 +129,19 @@ export interface Creep {
   poisonSource: number;
   shredAmount: number;
   shredTime: number;
+  /** Damage absorbed before health. */
+  shield: number;
+  maxShield: number;
+  /** Generic ability cooldown (heal, brood, blink, burrow). */
+  abilityCd: number;
+  /** Remaining time spent burrowed (untargetable). */
+  burrowTime: number;
+  /** Speed bonus from a nearby haste aura this tick. */
+  haste: number;
+  enraged: boolean;
+  elite: boolean;
+  /** Group-matched speed for support creeps travelling with a pack. */
+  baseSpeed: number;
 }
 
 export interface Projectile {
@@ -159,9 +172,11 @@ export const Cell = {
 export type GamePhase = 'build' | 'choose' | 'wave' | 'lost' | 'won';
 
 export interface SpawnQueue {
-  remaining: number;
-  timer: number;
-  interval: number;
+  /** Seconds since the wave started. */
+  elapsed: number;
+  /** Index of the next entry in the wave's spawn schedule. */
+  next: number;
+  total: number;
 }
 
 export interface Route {
@@ -173,7 +188,7 @@ export interface Route {
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   seed: string;
   rng: RngState;
   tick: number;
@@ -210,9 +225,16 @@ export type KeepOption =
   | { kind: 'recipe'; gemId: number; recipeId: string; consumed: number[] }
   | { kind: 'upgrade'; gemId: number; towerId: number; specialId: string; toLevel: number };
 
+/** Between-wave actions on towers already on the board. */
+export type BoardOption =
+  | { kind: 'boardCombine'; towerId: number; consumed: number[]; result: GemSpec }
+  | { kind: 'boardRecipe'; towerId: number; recipeId: string; consumed: number[] }
+  | { kind: 'boardUpgrade'; towerId: number; consumed: number[]; specialId: string; toLevel: number };
+
 export type Command =
   | { type: 'place'; x: number; y: number }
   | { type: 'keep'; option: KeepOption }
+  | { type: 'board'; option: BoardOption }
   | { type: 'upgradeOdds' }
   | { type: 'removeStone'; x: number; y: number }
   | { type: 'setTargeting'; towerId: number; targeting: Targeting };
@@ -231,4 +253,10 @@ export type GameEvent =
   | { type: 'chain'; points: number[]; style: AttackStyle }
   | { type: 'death'; creepId: number; x: number; y: number; air: boolean; archetype: string; bounty: number }
   | { type: 'leak'; creepId: number; lifeCost: number }
+  | { type: 'boardAction'; towerId: number; x: number; y: number; stones: { x: number; y: number }[] }
+  | { type: 'miss'; x: number; y: number; air: boolean }
+  | { type: 'heal'; x: number; y: number; radius: number }
+  | { type: 'blink'; creepId: number; fromX: number; fromY: number; x: number; y: number }
+  | { type: 'burrow'; creepId: number; x: number; y: number }
+  | { type: 'shieldBreak'; x: number; y: number; air: boolean }
   | { type: 'gameOver'; won: boolean };

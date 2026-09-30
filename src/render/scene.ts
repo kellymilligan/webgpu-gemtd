@@ -18,14 +18,14 @@ import { pass } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Controller } from '../app/controller';
-import { phaseForWave, START_LIVES } from '../sim/data/waves';
+import { phaseForWave, START_LIVES, waveDef } from '../sim/data/waves';
 import { effectiveAttack, towerDef } from '../sim/towers';
 import { gemTowerDef } from '../sim/data/gems';
 import type { Route, TimePhase } from '../sim/types';
 import { Actors } from './actors';
 import { Board } from './board';
 import { CameraRig } from './camera';
-import { toTileX, toTileY } from './coords';
+import { toTileX, toTileY, toWorldX, toWorldZ } from './coords';
 import { updateGemGlow, FAMILY_COLOURS } from './gems';
 import { Overlays } from './overlays';
 import { LightState, PRESETS } from './timeOfDay';
@@ -119,6 +119,38 @@ export class SceneView {
     this.light.set(PRESETS[phase]);
   }
 
+  private tmpV = new Vector3();
+
+  /** World position of a tile (plus height) in canvas pixels. */
+  project(x: number, y: number, h: number): { x: number; y: number; visible: boolean } {
+    const v = this.tmpV.set(toWorldX(x), h, toWorldZ(y)).project(this.rig.camera);
+    const rect = this.canvas.getBoundingClientRect();
+    return { x: ((v.x + 1) / 2) * rect.width + rect.left, y: ((1 - v.y) / 2) * rect.height + rect.top, visible: v.z < 1 };
+  }
+
+  /**
+   * Keeps world-anchored UI (popovers, badges) glued to the scene. Elements
+   * carry data-wx / data-wy (tile coords) and optional data-wh (height).
+   */
+  updateAnchors(root: HTMLElement) {
+    const els = root.querySelectorAll<HTMLElement>('[data-wx]');
+    const vw = window.innerWidth;
+    for (const el of els) {
+      const p = this.project(Number(el.dataset.wx), Number(el.dataset.wy), Number(el.dataset.wh ?? 1.2));
+      let x = p.x;
+      if (el.dataset.clamp) {
+        // Keep popovers on screen: clamp sideways, flip below near the top.
+        const child = el.firstElementChild as HTMLElement | null;
+        const w = child?.offsetWidth ?? 0;
+        const h = child?.offsetHeight ?? 0;
+        x = Math.max(w / 2 + 12, Math.min(vw - w / 2 - 12, x));
+        el.classList.toggle('below', p.y - h - 24 < 64);
+      }
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(p.y)}px)`;
+      el.style.visibility = p.visible ? '' : 'hidden';
+    }
+  }
+
   frame(ctl: Controller, alpha: number, dt: number) {
     this.time += dt;
     const s = ctl.state;
@@ -158,6 +190,9 @@ export class SceneView {
     this.overlays.setHover(h && s.phase === 'build' ? { x: h.x, y: h.y, ok: !!h.check?.ok } : null);
     this.board.gridOpacity.value += ((s.phase === 'build' ? 0.4 : 0.08) - this.board.gridOpacity.value) * Math.min(1, dt * 4);
     this.updateSelectionOverlay(ctl);
+    const hl = ctl.highlight;
+    this.overlays.setMarks(hl?.target ?? null, hl?.consumed ?? []);
+    this.overlays.setAirEmphasis(s.phase !== 'wave' && waveDef(s.seed, s.wave).groups.some((g) => g.archetype.air));
     this.overlays.update(this.time);
 
     this.pipeline.render();

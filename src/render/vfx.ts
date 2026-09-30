@@ -115,6 +115,27 @@ export class Vfx {
         case 'placed':
           this.ring(e.gem.x + 0.5, e.gem.y + 0.5, 0.05, 0.9, 'prism', 0.5, 0.5);
           break;
+        case 'miss':
+          this.ring(e.x, e.y, e.air ? AIR_HEIGHT : 0.3, 0.45, 'prism', 0.25, 0.4);
+          break;
+        case 'heal':
+          this.ring(e.x, e.y, 0.08, e.radius, 'venom', 0.6, 0.7);
+          break;
+        case 'blink':
+          this.flash(e.fromX, e.fromY, false, 'needle', 0.3, 0.8);
+          this.flash(e.x, e.y, false, 'needle', 0.35, 1);
+          break;
+        case 'burrow':
+          this.burst(e.x, e.y, false, '#8a7a5a', 8);
+          break;
+        case 'shieldBreak':
+          this.burst(e.x, e.y, e.air, '#bfe8ff', 16);
+          break;
+        case 'boardAction':
+          this.ring(e.x + 0.5, e.y + 0.5, 0.06, 1.6, 'lightning', 0.8, 1.2);
+          this.flash(e.x + 0.5, e.y + 0.5, false, 'prism', 0.6, 1.2);
+          for (const st of e.stones) this.burst(st.x + 0.5, st.y + 0.5, false, '#cfc8b8', 10);
+          break;
         case 'stoneRemoved':
           this.burst(e.x + 0.5, e.y + 0.5, false, '#9a978e', 14);
           break;

@@ -1,26 +1,22 @@
 import {
-  CapsuleGeometry,
   Color,
-  ConeGeometry,
   CylinderGeometry,
-  DodecahedronGeometry,
+  DoubleSide,
   Group,
+  IcosahedronGeometry,
   Mesh,
   MeshStandardMaterial,
-  Object3D,
-  PlaneGeometry,
   RingGeometry,
-  SphereGeometry,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
-  DoubleSide,
 } from 'three/webgpu';
-import type { BufferGeometry, Material } from 'three/webgpu';
-import { ARCHETYPES } from '../sim/data/waves';
+import { ARCHETYPES } from '../sim/data/creeps';
+import { buildCreepModel } from './creeps';
+import type { CreepModel } from './creeps';
 import type { Creep, Family, GameState, PendingGem, Tower } from '../sim/types';
 import { AIR_HEIGHT, hash2, toWorldX, toWorldZ } from './coords';
-import { familyGeometry, gemMaterial, gradeScale, specialGem } from './gems';
+import { gemGeometry, gemMaterial, gradeScale, specialGem } from './gems';
 
 const plinthGeo = new CylinderGeometry(0.3, 0.42, 0.24, 8).translate(0, 0.12, 0);
 const plinthMat = new MeshStandardMaterial({ color: '#77736b', roughness: 0.85, flatShading: true });
@@ -51,14 +47,17 @@ interface PendingView {
 
 interface CreepView {
   root: Group;
-  body: Object3D;
-  wings?: Mesh[];
+  body: Group;
+  model: CreepModel;
   hpBg: Sprite;
   hpFg: Sprite;
+  shield?: Mesh;
   heading: number;
   phase: number;
   boss: boolean;
+  elite: boolean;
   scale: number;
+  sink: number;
 }
 
 /** Cut gems tilt toward the viewer so their crowns catch the light. */
@@ -150,7 +149,7 @@ export class Actors {
     }
     const special = t.kind === 'special';
     const gm = gemMaterial(t.family, t.grade, t.specialId, t.level);
-    const gem = new Mesh(special ? specialGem() : familyGeometry(t.family), gm.material);
+    const gem = new Mesh(special ? specialGem() : gemGeometry(t.family, t.grade), gm.material);
     gem.castShadow = true;
     gem.rotation.x = GEM_TILT[t.family];
     const spinner = new Group();
@@ -172,7 +171,7 @@ export class Actors {
       if (!v) {
         const root = new Group();
         root.position.set(toWorldX(p.x + 0.5), 0, toWorldZ(p.y + 0.5));
-        const gem = new Mesh(familyGeometry(p.family), gemMaterial(p.family, p.grade).material);
+        const gem = new Mesh(gemGeometry(p.family, p.grade), gemMaterial(p.family, p.grade).material);
         gem.castShadow = true;
         gem.rotation.x = GEM_TILT[p.family];
         const spinner = new Group();
@@ -212,37 +211,40 @@ export class Actors {
       const y = c.py + (c.y - c.py) * alpha;
       const dx = c.x - c.px;
       const dy = c.y - c.py;
-      if (dx * dx + dy * dy > 1e-6) {
+      const moving = dx * dx + dy * dy > 1e-6;
+      if (moving) {
         const target = Math.atan2(dx, dy);
         let d = target - v.heading;
         d = Math.atan2(Math.sin(d), Math.cos(d));
         v.heading += d * 0.25;
       }
-      const bob = c.air ? Math.sin(time * 3 + v.phase) * 0.12 : Math.abs(Math.sin(time * 10 + v.phase)) * 0.04;
-      v.root.position.set(toWorldX(x), (c.air ? AIR_HEIGHT : 0) + bob, toWorldZ(y));
+      const t = time * (0.6 + c.speed * 0.4) + v.phase;
+      const bob = c.air ? Math.sin(time * 3 + v.phase) * 0.12 : Math.abs(Math.sin(t * 4)) * 0.04;
+      // Burrowed creeps sink into the ground.
+      v.sink += ((c.burrowTime > 0 ? 1 : 0) - v.sink) * 0.2;
+      v.root.position.set(toWorldX(x), (c.air ? AIR_HEIGHT : 0) + bob - v.sink * 0.5 * v.scale, toWorldZ(y));
       v.body.rotation.y = v.heading;
-      if (v.wings) {
-        const flap = Math.sin(time * 14 + v.phase) * 0.7;
-        v.wings[0].rotation.z = flap;
-        v.wings[1].rotation.z = -flap;
-      }
+      animateModel(v.model, time, t, v.phase);
       const frac = Math.max(0, c.hp / c.maxHp);
-      const w = v.boss ? 1.6 : 0.7;
+      const w = v.boss ? 1.6 : v.elite ? 1.0 : 0.7;
       v.hpFg.scale.set(w * frac, 0.09, 1);
       v.hpFg.position.x = -w / 2;
       v.hpBg.scale.set(w + 0.04, 0.13, 1);
       const mat = v.hpFg.material as SpriteMaterial;
       mat.color.copy(frac > 0.6 ? hpColours.high : frac > 0.3 ? hpColours.mid : hpColours.low);
-      const showBar = frac < 0.999;
-      v.hpFg.visible = v.hpBg.visible = showBar;
-      // Status tints.
-      const tint = v.body.userData.tint as MeshStandardMaterial | undefined;
-      if (tint) {
-        const base = v.body.userData.baseColour as Color;
-        tint.color.copy(base);
-        if (c.slowAmount > 0) tint.color.lerp(new Color('#9fdcff'), 0.55);
-        if (c.poisonTime > 0) tint.color.lerp(new Color('#5dff7a'), 0.4);
+      v.hpFg.visible = v.hpBg.visible = (frac < 0.999 || c.shield < c.maxShield) && v.sink < 0.5;
+      if (v.shield) {
+        const sf = c.maxShield > 0 ? c.shield / c.maxShield : 0;
+        v.shield.visible = sf > 0.01;
+        v.shield.scale.setScalar(v.model.height * v.scale * (0.9 + 0.05 * Math.sin(time * 5)));
+        (v.shield.material as MeshStandardMaterial).opacity = 0.12 + 0.25 * sf;
       }
+      // Status tints.
+      const tint = v.model.tint;
+      tint.color.copy(v.model.colour);
+      if (c.enraged) tint.color.lerp(hpColours.low, 0.5);
+      if (c.slowAmount > 0) tint.color.lerp(statusFrost, 0.55);
+      if (c.poisonTime > 0) tint.color.lerp(statusVenom, 0.4);
     }
     for (const [id, v] of this.creeps) {
       if (!seen.has(id)) {
@@ -259,167 +261,55 @@ export class Actors {
     const root = new Group();
     const body = new Group();
     root.add(body);
-    const { parts, wings, tint, colour, scale } = creepModel(c.archetype);
-    for (const p of parts) {
-      p.castShadow = true;
-      body.add(p);
-    }
-    for (const w of wings ?? []) body.add(w);
+    // Each creep gets its own materials (for status tints); geometries are shared.
+    const model = buildCreepModel(arch);
+    body.add(model.root);
+    const scale = arch.scale * (c.elite ? 1.5 : 1);
     body.scale.setScalar(scale);
-    body.userData.tint = tint;
-    body.userData.baseColour = colour;
     const hpMat = new SpriteMaterial({ color: '#7dff8a', depthTest: false, transparent: true });
     this.hpMats.set(c.id, hpMat);
     const hpBg = new Sprite(hpBgMat);
     const hpFg = new Sprite(hpMat);
     hpFg.center.set(0, 0.5);
-    const barY = (arch.boss ? 1.9 : 0.95) * (scale / 1);
+    const barY = model.height * scale + 0.3;
     hpBg.position.y = barY;
     hpFg.position.y = barY;
     hpBg.renderOrder = 10;
     hpFg.renderOrder = 11;
     root.add(hpBg, hpFg);
-    return { root, body, wings, hpBg, hpFg, heading: 0, phase: hash2(c.id, 0) * 10, boss: arch.boss, scale };
+    if (c.elite || arch.role === 'boss') {
+      const crown = new Mesh(crownGeo, arch.role === 'boss' ? bossCrownMat : eliteCrownMat);
+      crown.position.y = 0.04;
+      crown.scale.setScalar(0.5 * scale);
+      root.add(crown);
+    }
+    let shield: Mesh | undefined;
+    if (c.maxShield > 0) {
+      shield = new Mesh(shieldGeo, shieldMat.clone());
+      shield.position.y = (model.height * scale) / 2;
+      root.add(shield);
+    }
+    return { root, body, model, hpBg, hpFg, shield, heading: 0, phase: hash2(c.id, 0) * 10, boss: arch.role === 'boss', elite: c.elite, scale, sink: 0 };
   }
+}
+
+const statusFrost = new Color('#9fdcff');
+const statusVenom = new Color('#5dff7a');
+const crownGeo = new TorusGeometry(1, 0.06, 6, 32).rotateX(Math.PI / 2);
+const eliteCrownMat = new MeshStandardMaterial({ color: '#ffd27a', emissive: new Color('#ffb52e'), emissiveIntensity: 1.5 });
+const bossCrownMat = new MeshStandardMaterial({ color: '#ff5f7a', emissive: new Color('#ff2f5a'), emissiveIntensity: 1.8 });
+const shieldGeo = new IcosahedronGeometry(0.75, 2);
+const shieldMat = new MeshStandardMaterial({ color: '#bfe8ff', emissive: new Color('#7fc8ff'), emissiveIntensity: 0.8, transparent: true, opacity: 0.3, depthWrite: false });
+
+function animateModel(m: CreepModel, time: number, t: number, phase: number) {
+  for (const w of m.wings) w.rotation.z = Math.sin(time * 14 + phase) * 0.7 * (w.userData.side ?? 1);
+  for (const l of m.legs) l.rotation.x = Math.sin(t * 8 + (l.userData.index ?? 0) * 1.3 + (l.userData.side ?? 1) * 1.5) * 0.4;
+  for (const sgm of m.segments) sgm.rotation.y = Math.sin(t * 5 - (sgm.userData.index ?? 0) * 0.9) * 0.3;
+  for (const p of m.pulse) p.scale.setScalar(1 + Math.sin(time * 3 + phase) * 0.08);
 }
 
 function easeOutBack(t: number) {
   const c1 = 1.70158;
   const c3 = c1 + 1;
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-}
-
-interface CreepModel {
-  parts: Mesh[];
-  wings?: Mesh[];
-  tint: MeshStandardMaterial;
-  colour: Color;
-  scale: number;
-}
-
-const geoCache = new Map<string, BufferGeometry>();
-const geo = (key: string, make: () => BufferGeometry) => {
-  let g = geoCache.get(key);
-  if (!g) geoCache.set(key, (g = make()));
-  return g;
-};
-
-function std(colour: string, extra: Partial<ConstructorParameters<typeof MeshStandardMaterial>[0]> = {}) {
-  return new MeshStandardMaterial({ color: colour, roughness: 0.55, flatShading: true, ...extra });
-}
-
-/** Grey-box creature silhouettes, one per archetype. */
-function creepModel(id: string): CreepModel {
-  const mesh = (g: BufferGeometry, m: Material, x = 0, y = 0, z = 0) => {
-    const o = new Mesh(g, m);
-    o.position.set(x, y, z);
-    return o;
-  };
-  switch (id) {
-    case 'beetle': {
-      const shell = std('#2c6f73', { metalness: 0.4, roughness: 0.3 });
-      return {
-        parts: [
-          mesh(geo('beetleShell', () => new SphereGeometry(0.3, 10, 6).scale(1, 0.6, 1.35)), shell, 0, 0.22, 0),
-          mesh(geo('beetleHead', () => new SphereGeometry(0.14, 8, 6)), std('#1a2a2a'), 0, 0.2, 0.42),
-        ],
-        tint: shell,
-        colour: new Color('#2c6f73'),
-        scale: 1,
-      };
-    }
-    case 'skitter': {
-      const m = std('#9b4a2c');
-      return {
-        parts: [mesh(geo('skitter', () => new ConeGeometry(0.18, 0.55, 5).rotateX(Math.PI / 2)), m, 0, 0.15, 0)],
-        tint: m,
-        colour: new Color('#9b4a2c'),
-        scale: 1,
-      };
-    }
-    case 'tortoise': {
-      const shell = std('#4f6b37');
-      return {
-        parts: [
-          mesh(geo('tortShell', () => new SphereGeometry(0.42, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.8, 1.1)), shell, 0, 0.1, 0),
-          mesh(geo('tortHead', () => new SphereGeometry(0.13, 8, 6)), std('#7b6a4a'), 0, 0.18, 0.5),
-        ],
-        tint: shell,
-        colour: new Color('#4f6b37'),
-        scale: 1,
-      };
-    }
-    case 'rootling': {
-      const bark = std('#6b4b2e');
-      return {
-        parts: [
-          mesh(geo('rootBody', () => new CapsuleGeometry(0.17, 0.35, 3, 6)), bark, 0, 0.35, 0),
-          mesh(geo('rootLeaf', () => new ConeGeometry(0.22, 0.3, 5)), std('#6fbf4a'), 0, 0.75, 0),
-        ],
-        tint: bark,
-        colour: new Color('#6b4b2e'),
-        scale: 1,
-      };
-    }
-    case 'wisp': {
-      const glow = new MeshStandardMaterial({ color: '#fff3b0', emissive: new Color('#ffd76a'), emissiveIntensity: 2.5 });
-      return {
-        parts: [mesh(geo('wisp', () => new SphereGeometry(0.2, 12, 8)), glow, 0, 0.55, 0)],
-        tint: glow,
-        colour: new Color('#fff3b0'),
-        scale: 1,
-      };
-    }
-    case 'seedpod': {
-      const m = std('#d8c28a');
-      return {
-        parts: [mesh(geo('seed', () => new ConeGeometry(0.2, 0.35, 6).translate(0, 0.17, 0).rotateX(Math.PI / 2)), m)],
-        wings: seedWings(),
-        tint: m,
-        colour: new Color('#d8c28a'),
-        scale: 1,
-      };
-    }
-    case 'moth':
-    case 'mothQueen': {
-      const m = std(id === 'moth' ? '#6d5a86' : '#3b2558');
-      const wingMat = new MeshStandardMaterial({ color: id === 'moth' ? '#b9a3d8' : '#8f5fd1', side: DoubleSide, transparent: true, opacity: 0.85, emissive: new Color('#5b3a9a'), emissiveIntensity: 0.4 });
-      const wingGeo = geo('mothWing', () => new PlaneGeometry(0.55, 0.4).translate(0.3, 0, 0).rotateX(-Math.PI / 2));
-      const left = new Mesh(wingGeo, wingMat);
-      const right = new Mesh(wingGeo, wingMat);
-      right.rotation.y = Math.PI;
-      return {
-        parts: [mesh(geo('mothBody', () => new CapsuleGeometry(0.08, 0.35, 3, 6).rotateX(Math.PI / 2)), m)],
-        wings: [left, right],
-        tint: m,
-        colour: m.color.clone(),
-        scale: id === 'mothQueen' ? 2.4 : 1,
-      };
-    }
-    case 'colossus': {
-      const rock = std('#6e6a62');
-      return {
-        parts: [
-          mesh(geo('colBody', () => new DodecahedronGeometry(0.5, 0).scale(1, 0.9, 1.2)), rock, 0, 0.5, 0),
-          mesh(geo('colMoss', () => new SphereGeometry(0.42, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.05, 0.5, 1.2)), std('#4e7d34'), 0, 0.72, 0),
-        ],
-        tint: rock,
-        colour: new Color('#6e6a62'),
-        scale: 1.8,
-      };
-    }
-    default: {
-      const m = std('#aa33aa');
-      return { parts: [mesh(geo('unknown', () => new SphereGeometry(0.25)), m, 0, 0.25, 0)], tint: m, colour: new Color('#aa33aa'), scale: 1 };
-    }
-  }
-}
-
-function seedWings(): Mesh[] {
-  const m = new MeshStandardMaterial({ color: '#f4ecd2', side: DoubleSide, transparent: true, opacity: 0.8 });
-  const g = geo('seedWing', () => new PlaneGeometry(0.5, 0.14).translate(0.25, 0, 0).rotateX(-Math.PI / 2));
-  const a = new Mesh(g, m);
-  const b = new Mesh(g, m);
-  b.rotation.y = Math.PI;
-  return [a, b];
 }

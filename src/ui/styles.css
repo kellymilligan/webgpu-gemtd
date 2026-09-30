@@ -193,6 +193,7 @@ button.on {
 }
 
 .odds {
+  z-index: 3;
   position: absolute;
   left: 16px;
   bottom: 16px;
@@ -238,6 +239,7 @@ button.on {
 }
 
 .prompt-wrap {
+  z-index: 3;
   position: absolute;
   bottom: 16px;
   left: 50%;
@@ -520,4 +522,192 @@ button.on {
   .odds {
     display: none;
   }
+}
+
+/* ── World-anchored UI ─────────────────────────────────────────────── */
+.anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.anchor > * {
+  pointer-events: auto;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+.anchor.pop {
+  z-index: 5;
+}
+.anchor.pop > * {
+  bottom: 18px;
+}
+.anchor.pop.below > * {
+  bottom: auto;
+  top: 60px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 4px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(14, 17, 24, 0.55);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+.tag .gemdot {
+  width: 14px;
+  height: 14px;
+}
+.tag.live {
+  background: rgba(14, 17, 24, 0.72);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.badge {
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1;
+}
+.badge.up,
+.badge-btn.up {
+  color: #8dffb0;
+}
+.badge.forge,
+.badge-btn.forge {
+  color: #ffd27a;
+}
+.badge-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  background: rgba(14, 17, 24, 0.7);
+  animation: badge-bob 1.6s ease-in-out infinite;
+}
+@keyframes badge-bob {
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+}
+
+.popover {
+  width: 300px;
+  padding: 10px;
+  background: var(--glass-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: pop-in 0.14s ease-out;
+}
+.popover.narrow {
+  width: 240px;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+.popover::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  background: inherit;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.anchor.below .popover::after {
+  bottom: auto;
+  top: -6px;
+  transform: translateX(-50%) rotate(225deg);
+}
+.phead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ptitle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.ptitle .dim {
+  font-size: 11.5px;
+}
+.phead .close {
+  min-width: 26px;
+  padding: 3px 6px;
+  align-self: flex-start;
+}
+.pstats {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.option.up {
+  border-color: rgba(141, 255, 176, 0.45);
+  background: rgba(141, 255, 176, 0.08);
+}
+.option.forge {
+  border-color: rgba(255, 210, 122, 0.55);
+  background: rgba(255, 210, 122, 0.1);
+}
+.targeting {
+  display: flex;
+  gap: 3px;
+}
+.targeting button {
+  flex: 1;
+  padding: 4px 2px;
+  font-size: 10.5px;
+  text-transform: capitalize;
+}
+button.icon.dev {
+  color: #ffb3b3;
+}
+.wavecard {
+  max-width: 100%;
+  line-height: 1.8;
+}
+.wgroup {
+  display: inline;
+}
+.chip.elite {
+  background: rgba(255, 200, 90, 0.3);
+}
+.chip.mixed {
+  background: rgba(150, 190, 255, 0.2);
+}
+.codex-sub {
+  margin: 18px 0 2px;
+  font-size: 15px;
+}
+.gemdot.g0 {
+  border-radius: 3px;
+  transform: rotate(8deg);
+}
+.gemdot.g1 {
+  border-radius: 40%;
+}
+.gemdot.special {
+  border-radius: 30%;
+  transform: rotate(45deg) scale(0.85);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, 0.35), inset 0 2px 3px rgba(255, 255, 255, 0.6), 0 0 10px rgba(255, 220, 150, 0.5);
 }

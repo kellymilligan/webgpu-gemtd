@@ -36,6 +36,10 @@ class Ribbon {
     this.mesh.frustumCulled = false;
   }
 
+  setAlpha(a: number) {
+    this.alpha.value = a;
+  }
+
   set(route: { points: number[] } | null) {
     this.mesh.visible = !!route && route.points.length >= 4;
     if (!route || route.points.length < 4) return;
@@ -89,6 +93,10 @@ export class Overlays {
   private rangeMat = new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.8, depthWrite: false, side: DoubleSide });
   private rangeFillMat = new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.08, depthWrite: false, side: DoubleSide });
   private select: Mesh;
+  private marks: Mesh[] = [];
+  private markGeo = new RingGeometry(0.34, 0.46, 4, 1, Math.PI / 4).rotateX(-Math.PI / 2);
+  private consumeMat = new MeshBasicMaterial({ color: new Color('#ff8a5c').multiplyScalar(2), transparent: true, opacity: 0.9, depthWrite: false });
+  private targetMat = new MeshBasicMaterial({ color: new Color('#ffd27a').multiplyScalar(2.5), transparent: true, opacity: 0.95, depthWrite: false });
 
   constructor() {
     this.hover = new Mesh(new PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2), this.hoverMat);
@@ -147,7 +155,31 @@ export class Overlays {
     this.select.position.z = toWorldZ(tile.y + 0.5);
   }
 
+  /** Emphasises the flight path when flyers are due. */
+  setAirEmphasis(on: boolean) {
+    this.airPath.setAlpha(on ? 0.75 : 0.28);
+  }
+
+  /** Marks tiles a combine will consume, and where the result will stand. */
+  setMarks(target: { x: number; y: number } | null, consumed: { x: number; y: number }[]) {
+    const all = target ? [{ ...target, target: true }, ...consumed.map((c) => ({ ...c, target: false }))] : [];
+    while (this.marks.length < all.length) {
+      const m = new Mesh(this.markGeo, this.consumeMat);
+      m.renderOrder = 4;
+      this.group.add(m);
+      this.marks.push(m);
+    }
+    this.marks.forEach((m, i) => {
+      const t = all[i];
+      m.visible = !!t;
+      if (!t) return;
+      m.material = t.target ? this.targetMat : this.consumeMat;
+      m.position.set(toWorldX(t.x + 0.5), 0.07, toWorldZ(t.y + 0.5));
+    });
+  }
+
   update(t: number) {
     this.select.scale.setScalar(1 + Math.sin(t * 4) * 0.05);
+    for (const m of this.marks) m.scale.setScalar(1 + Math.sin(t * 6) * 0.08);
   }
 }

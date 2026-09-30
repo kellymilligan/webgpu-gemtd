@@ -42,6 +42,7 @@ async function boot() {
     last = now;
     const alpha = ctl.tick(dt);
     view.frame(ctl, alpha, dt);
+    view.updateAnchors(uiRoot);
   });
 }
 
@@ -105,6 +106,9 @@ function bindInput(canvas: HTMLCanvasElement, view: SceneView, ctl: Controller) 
         break;
       case 'Digit3':
         ctl.setSpeed(4);
+        break;
+      case 'Digit4':
+        ctl.setSpeed(10);
         break;
       case 'KeyC':
         ctl.toggleCodex();

@@ -24,11 +24,11 @@ URL options:
 
 | Action | Input |
 |---|---|
-| Place a gem, select a gem or stone | Left click |
+| Place a gem; select a gem, tower or stone for its actions | Left click |
 | Pan | Drag, or `WASD` / arrow keys |
 | Zoom | Mouse wheel |
 | Rotate 90° | `Q` / `E` |
-| Pause, speed | `Space`, `1` `2` `3` |
+| Pause, speed | `Space`, `1` `2` `3` (`4` = 10× for testing) |
 | Codex | `C` |
 | Improve gem odds | `U` |
 | Deselect | `Esc` / right click |

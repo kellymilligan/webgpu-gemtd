@@ -8,4 +8,5 @@ export * from './data/map';
 export * from './data/gems';
 export * from './data/recipes';
 export * from './data/waves';
+export * from './data/creeps';
 export * from './data/economy';

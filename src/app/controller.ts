@@ -1,5 +1,6 @@
 import {
   applyCommand,
+  boardOptionsFor,
   checkPlacement,
   createGame,
   currentPathLength,
@@ -12,7 +13,7 @@ import {
   testBlock,
   WAYPOINTS,
 } from '../sim';
-import type { Command, GameEvent, GameState, KeepOption, PlaceCheck, Route, Targeting } from '../sim';
+import type { BoardOption, Command, GameEvent, GameState, KeepOption, PlaceCheck, Route, Targeting } from '../sim';
 import { Cell } from '../sim/types';
 
 export type Selection =
@@ -29,9 +30,14 @@ export interface Hover {
   delta: number | null;
 }
 
-export type Speed = 1 | 2 | 4;
+export type Speed = 1 | 2 | 4 | 10;
 
-const SAVE_KEY = 'facet.save.v1';
+export interface Highlight {
+  target: { x: number; y: number };
+  consumed: { x: number; y: number }[];
+}
+
+const SAVE_KEY = 'facet.save.v2';
 
 export class Controller {
   state: GameState;
@@ -41,6 +47,8 @@ export class Controller {
   hover: Hover | null = null;
   toast: { text: string; id: number } | null = null;
   codexOpen = false;
+  /** Tiles an option would affect, shown while hovering it. */
+  highlight: Highlight | null = null;
   pathLength = 0;
   version = 0;
   /** Bumped on every new game so views can drop per-run caches. */
@@ -61,7 +69,7 @@ export class Controller {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
       const s = JSON.parse(raw) as GameState;
-      if (s.version !== 1 || s.phase === 'lost' || s.phase === 'won') return null;
+      if (s.version !== 2 || s.phase === 'lost' || s.phase === 'won') return null;
       // Saves are taken on commands and at wave end, so a wave resumes from its start.
       return new Controller(s);
     } catch {
@@ -115,6 +123,7 @@ export class Controller {
       return false;
     }
     this.events.push(...events);
+    if (cmd.type === 'keep' || cmd.type === 'board') this.highlight = null;
     if (cmd.type === 'keep') this.selection = null;
     if (cmd.type === 'removeStone') this.selection = null;
     if (cmd.type === 'place' || cmd.type === 'removeStone' || cmd.type === 'keep') {
@@ -126,7 +135,24 @@ export class Controller {
     return true;
   }
 
+  board(option: BoardOption) {
+    this.highlight = null;
+    const ok = this.dispatch({ type: 'board', option });
+    if (ok) this.selection = { kind: 'tower', id: option.towerId };
+    this.notify(true);
+  }
+
+  boardOptions(towerId: number) {
+    return boardOptionsFor(this.state, towerId);
+  }
+
+  setHighlight(h: Highlight | null) {
+    this.highlight = h;
+    this.notify(true);
+  }
+
   keep(option: KeepOption) {
+    this.highlight = null;
     this.dispatch({ type: 'keep', option });
   }
 
@@ -212,6 +238,7 @@ export class Controller {
 
   clickTile(x: number, y: number) {
     const s = this.state;
+    this.highlight = null;
     if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return;
     const cell = s.grid[y * GRID_W + x];
     const pending = s.pending.find((p) => p.x === x && p.y === y);

@@ -1,25 +1,24 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { Controller, Speed } from '../app/controller';
 import {
-  FAMILY_DEFS,
+  abilityTags,
   gemName,
-  gemTowerDef,
   GEMS_PER_ROUND,
+  isSpecialIngredient,
   GRADE_NAMES,
   ODDS_TABLE,
   oddsUpgradeCost,
   phaseForWave,
   SPECIALS,
   SPECIALS_BY_ID,
-  STONE_REMOVE_COST,
   TOTAL_WAVES,
-  towerDef,
   towerName,
   waveDef,
 } from '../sim';
-import type { GameState, GemSpec, KeepOption, PendingGem, Targeting, TimePhase, Tower } from '../sim';
-import { FAMILY_COLOURS } from '../render/gems';
-import { attackTags, statLine } from './format';
+import type { GameState, Ingredient, TimePhase } from '../sim';
+import { GemDot } from './GemDot';
+import { WorldLayer } from './World';
+import { statLine } from './format';
 
 function useController(ctl: Controller) {
   const [, set] = useState(0);
@@ -38,7 +37,8 @@ export function App({ ctl, backend }: { ctl: Controller; backend: string }) {
       <TopBar ctl={ctl} s={s} />
       <OddsCard ctl={ctl} s={s} />
       <Prompt ctl={ctl} s={s} />
-      <SidePanel ctl={ctl} s={s} />
+      <SidePanel s={s} />
+      <WorldLayer ctl={ctl} s={s} />
       {ctl.codexOpen && <Codex ctl={ctl} s={s} />}
       <Toast ctl={ctl} />
       {(s.phase === 'lost' || s.phase === 'won') && <GameOver ctl={ctl} s={s} />}
@@ -49,7 +49,7 @@ export function App({ ctl, backend }: { ctl: Controller; backend: string }) {
 
 function TopBar({ ctl, s }: { ctl: Controller; s: GameState }) {
   const phase = phaseForWave(s.wave);
-  const speeds: Speed[] = [1, 2, 4];
+  const speeds: Speed[] = [1, 2, 4, 10];
   const [confirmNew, setConfirmNew] = useState<{ wasPaused: boolean } | null>(null);
   const openConfirm = () => {
     setConfirmNew({ wasPaused: ctl.paused });
@@ -89,7 +89,7 @@ function TopBar({ ctl, s }: { ctl: Controller; s: GameState }) {
           ❚❚
         </button>
         {speeds.map((sp) => (
-          <button key={sp} class={`icon ${!ctl.paused && ctl.speed === sp ? 'on' : ''}`} onClick={() => ctl.setSpeed(sp)} title={`Speed ${sp}×`}>
+          <button key={sp} class={`icon ${sp === 10 ? 'dev' : ''} ${!ctl.paused && ctl.speed === sp ? 'on' : ''}`} onClick={() => ctl.setSpeed(sp)} title={sp === 10 ? 'Speed 10× (for testing)' : `Speed ${sp}×`}>
             {sp}×
           </button>
         ))}
@@ -160,7 +160,6 @@ function OddsCard({ ctl, s }: { ctl: Controller; s: GameState }) {
 }
 
 function Prompt({ ctl, s }: { ctl: Controller; s: GameState }) {
-  const next = waveDef(s.wave);
   let main: preact.ComponentChildren;
   if (s.phase === 'build') {
     const h = ctl.hover;
@@ -181,68 +180,53 @@ function Prompt({ ctl, s }: { ctl: Controller; s: GameState }) {
   } else if (s.phase === 'choose') {
     main = (
       <>
-        <b>Choose one gem to keep</b> <span class="dim">· the rest turn to stone</span>
+        <b>Choose one gem to keep</b> <span class="dim">· click a gem for its options · the rest turn to stone</span>
       </>
     );
   } else if (s.phase === 'wave') {
-    const left = s.creeps.length + (s.spawn?.remaining ?? 0);
+    const def = waveDef(s.seed, s.wave);
+    const left = s.creeps.length + (s.spawn ? s.spawn.total - s.spawn.next : 0);
     main = (
       <>
-        <b>Wave {s.wave}</b> <span class="dim">·</span> {next.archetype.name} <span class="dim">·</span> {left} remaining
+        <b>Wave {s.wave}</b> <span class="dim">·</span> {def.groups.map((g) => g.archetype.name).join(' + ')} <span class="dim">·</span> {left} remaining
       </>
     );
   } else main = null;
   return (
     <div class="prompt-wrap">
       {main && <div class="panel prompt">{main}</div>}
-      {(s.phase === 'build' || s.phase === 'choose') && <WaveCard wave={s.wave} />}
+      {(s.phase === 'build' || s.phase === 'choose') && <WaveCard s={s} />}
     </div>
   );
 }
 
-function WaveCard({ wave }: { wave: number }) {
-  const d = waveDef(wave);
-  const a = d.archetype;
+function WaveCard({ s }: { s: GameState }) {
+  const d = waveDef(s.seed, s.wave);
+  const kindLabel: Record<string, string> = { boss: 'Boss', elite: 'Elite', air: 'Air', mixed: 'Mixed' };
   return (
     <div class="panel wavecard">
-      <span class="dim">Next</span> <b>{a.name}</b> ×{d.count}
-      <span class={`chip ${a.air ? 'air' : 'ground'}`}>{a.air ? 'Air' : 'Ground'}</span>
-      {a.boss && <span class="chip boss">Boss</span>}
-      <span class="dim">
-        {' '}
-        · {d.hp} hp · armour {d.armor}
-        {a.regen ? ` · regen ${Math.round(a.regen * 100)}%/s` : ''} · {a.blurb}
-      </span>
+      <span class="dim">Next </span>
+      {kindLabel[d.kind] && <span class={`chip ${d.kind}`}>{kindLabel[d.kind]}</span>}
+      {d.groups.map((g, i) => (
+        <span key={i} class="wgroup">
+          {i > 0 && <span class="dim"> + </span>}
+          <b>
+            {g.elite ? 'Elite ' : ''}
+            {g.archetype.name}
+          </b>{' '}
+          ×{g.count} <span class="dim">({g.hp} hp)</span>
+          {abilityTags(g.archetype).filter((t) => !(t === 'Air' && d.kind === 'air')).map((t) => (
+            <span key={t} class="chip">
+              {t}
+            </span>
+          ))}
+        </span>
+      ))}
     </div>
   );
 }
 
-function GemDot({ spec, special }: { spec: GemSpec; special?: string }) {
-  const colour = special ? SPECIALS_BY_ID[special].colour : FAMILY_COLOURS[spec.family];
-  return (
-    <span class="gemdot" style={{ background: colour }}>
-      {!special && <span class="pips">{'•'.repeat(spec.grade + 1)}</span>}
-    </span>
-  );
-}
-
-function SidePanel({ ctl, s }: { ctl: Controller; s: GameState }) {
-  const sel = ctl.selection;
-  if (s.phase === 'choose') return <KeepPanel ctl={ctl} s={s} />;
-  if (sel?.kind === 'tower') {
-    const t = s.towers.find((t) => t.id === sel.id);
-    if (t) return <TowerPanel ctl={ctl} t={t} />;
-  }
-  if (sel?.kind === 'stone')
-    return (
-      <div class="panel side">
-        <h3>Mossy stone</h3>
-        <p class="dim">Left behind by an unkept gem. Part of your maze.</p>
-        <button class="primary" disabled={s.gold < STONE_REMOVE_COST || s.phase !== 'build'} onClick={() => ctl.dispatch({ type: 'removeStone', x: sel.x, y: sel.y })}>
-          Clear stone · {STONE_REMOVE_COST}◆
-        </button>
-      </div>
-    );
+function SidePanel({ s }: { s: GameState }) {
   if (s.phase === 'build' && s.wave === 1 && s.pending.length === 0 && s.towers.length === 0) return <Intro />;
   return null;
 }
@@ -254,174 +238,89 @@ function Intro() {
       <p>Click tiles to unearth gems. Each round you place five and keep only one; the rest calcify into stone.</p>
       <p>Gems and stones both shape the path. Make the Blight walk far, past your best gems.</p>
       <p class="dim">
-        Pairs combine into a better grade. Some mixes form special gems — see the <kbd>C</kbd>odex.
+        Between waves, click a gem to combine it with matching gems on the board, forge special gems, and grow them from rough stones into Perfect jewels. See the <kbd>C</kbd>odex.
       </p>
       <p class="dim keys">
-        <kbd>WASD</kbd> pan · <kbd>Wheel</kbd> zoom · <kbd>Q</kbd>/<kbd>E</kbd> rotate · <kbd>Space</kbd> pause
+        <kbd>WASD</kbd> pan · <kbd>Wheel</kbd> zoom · <kbd>Q</kbd>/<kbd>E</kbd> rotate · <kbd>Space</kbd> pause · <kbd>1</kbd>–<kbd>4</kbd> speed
       </p>
     </div>
   );
 }
 
-function optionLabel(s: GameState, o: KeepOption): { title: string; def: ReturnType<typeof towerDef>; special?: string; spec?: GemSpec } {
-  switch (o.kind) {
-    case 'keep':
-      return { title: `Keep ${gemName(o.result.family, o.result.grade)}`, def: gemTowerDef(o.result.family, o.result.grade), spec: o.result };
-    case 'combine':
-      return { title: `Combine → ${gemName(o.result.family, o.result.grade)}`, def: gemTowerDef(o.result.family, o.result.grade), spec: o.result };
-    case 'recipe': {
-      const sp = SPECIALS_BY_ID[o.recipeId];
-      return { title: `Forge ${sp.levels[0].name}`, def: sp.levels[0], special: sp.id };
-    }
-    case 'upgrade': {
-      const sp = SPECIALS_BY_ID[o.specialId];
-      const t = s.towers.find((t) => t.id === o.towerId)!;
-      return { title: `Upgrade ${towerName(t)} → ${sp.levels[o.toLevel].name}`, def: sp.levels[o.toLevel], special: sp.id };
-    }
-  }
-}
-
-function KeepPanel({ ctl, s }: { ctl: Controller; s: GameState }) {
-  const selId = ctl.selection?.kind === 'pending' ? ctl.selection.id : null;
+export function Ingredients({ list }: { list: Ingredient[] }) {
   return (
-    <div class="panel side keep">
-      <h3>Keep one</h3>
-      {s.pending.map((p) => (
-        <PendingRow key={p.id} ctl={ctl} s={s} p={p} open={selId === p.id} />
-      ))}
-      <p class="dim hint">Click a gem to see its range. Combines and forges appear on each ingredient.</p>
-    </div>
-  );
-}
-
-function PendingRow({ ctl, s, p, open }: { ctl: Controller; s: GameState; p: PendingGem; open: boolean }) {
-  const opts = ctl.keepOptions(p.id);
-  const extra = opts.filter((o) => o.kind !== 'keep');
-  return (
-    <div class={`pending ${open ? 'open' : ''}`} onMouseEnter={() => ctl.clickTile(p.x, p.y)}>
-      {opts.map((o, i) => {
-        const L = optionLabel(s, o);
-        const best = o.kind === 'recipe' || o.kind === 'upgrade' || o.kind === 'combine';
-        return (
-          <button key={i} class={`option ${best ? 'best' : ''} ${o.kind === 'keep' && extra.length ? 'plain' : ''}`} onClick={() => ctl.keep(o)}>
-            <GemDot spec={L.spec ?? p} special={L.special} />
-            <span class="otext">
-              <span class="otitle">{L.title}</span>
-              <span class="ostats">
-                {statLine(L.def)}
-                {attackTags(L.def).length > 0 && <> · {attackTags(L.def).join(' · ')}</>}
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-const TARGETINGS: Targeting[] = ['first', 'last', 'strongest', 'weakest', 'closest'];
-
-function TowerPanel({ ctl, t }: { ctl: Controller; t: Tower }) {
-  const def = towerDef(t);
-  const sp = t.specialId ? SPECIALS_BY_ID[t.specialId] : null;
-  const nextUp = sp && t.level + 1 < sp.levels.length ? sp.upgrades[t.level] : null;
-  return (
-    <div class="panel side">
-      <h3>
-        <GemDot spec={t} special={t.specialId} /> {towerName(t)}
-      </h3>
-      <p class="dim">{sp ? def.description : FAMILY_DEFS[t.family].role}</p>
-      <div class="kv">
-        <span>Damage</span>
-        <b>{def.attack.damage}</b>
-        <span>Range</span>
-        <b>{def.attack.range.toFixed(1)}</b>
-        <span>Attack every</span>
-        <b>{(def.attack.cooldown / (1 + t.auraBonus)).toFixed(2)}s</b>
-        <span>Kills</span>
-        <b>{t.kills}</b>
-        <span>Damage dealt</span>
-        <b>{Math.round(t.damage).toLocaleString()}</b>
-      </div>
-      <div class="tags">
-        {attackTags(def).map((x) => (
-          <span key={x} class="chip">
-            {x}
+    <div class="ings">
+      {list.map((g, i) =>
+        isSpecialIngredient(g) ? (
+          <span key={i} class="ing">
+            <GemDot spec={{ family: SPECIALS_BY_ID[g.special].family, grade: 4 }} special={g.special} />
+            {SPECIALS_BY_ID[g.special].levels[0].name}
           </span>
-        ))}
-        {t.auraBonus > 0 && <span class="chip good">+{Math.round(t.auraBonus * 100)}% speed from aura</span>}
-      </div>
-      <div class="label">Targeting</div>
-      <div class="seg-control">
-        {TARGETINGS.map((x) => (
-          <button key={x} class={t.targeting === x ? 'on' : ''} onClick={() => ctl.setTargeting(t.id, x)}>
-            {x}
-          </button>
-        ))}
-      </div>
-      {nextUp && (
-        <p class="dim hint">
-          Upgrades with a {gemName(nextUp.family, nextUp.grade)} → {sp!.levels[t.level + 1].name}
-        </p>
+        ) : (
+          <span key={i} class="ing">
+            <GemDot spec={g} />
+            {gemName(g.family, g.grade)}
+          </span>
+        ),
       )}
     </div>
   );
 }
 
 function Codex({ ctl, s }: { ctl: Controller; s: GameState }) {
-  const counts = (list: GemSpec[]) => {
-    const pool = [...s.pending];
-    let have = 0;
+  // Materials on hand: this round's gems plus everything on the board.
+  const materials = [
+    ...s.pending.map((p) => ({ kind: 'gem' as const, family: p.family, grade: p.grade, specialId: undefined as string | undefined })),
+    ...s.towers.map((t) => ({ kind: t.kind, family: t.family, grade: t.grade, specialId: t.specialId })),
+  ];
+  const have = (list: Ingredient[]) => {
+    const pool = [...materials];
+    let n = 0;
     for (const ing of list) {
-      const i = pool.findIndex((p) => p.family === ing.family && p.grade === ing.grade);
+      const i = pool.findIndex((m) => (isSpecialIngredient(ing) ? m.specialId === ing.special : m.kind === 'gem' && m.family === ing.family && m.grade === ing.grade));
       if (i >= 0) {
-        have++;
+        n++;
         pool.splice(i, 1);
       }
     }
-    return have;
+    return n;
+  };
+  const card = (sp: (typeof SPECIALS)[number]) => {
+    const n = have(sp.ingredients);
+    const status = n === sp.ingredients.length ? 'ready' : n === sp.ingredients.length - 1 && n > 0 ? 'near' : '';
+    return (
+      <div key={sp.id} class={`recipe ${status}`}>
+        <div class="rhead">
+          <GemDot spec={{ family: sp.family, grade: 4 }} special={sp.id} />
+          <b>{sp.levels[0].name}</b>
+          {status === 'ready' && <span class="chip good">Ready</span>}
+          {status === 'near' && <span class="chip">One away</span>}
+        </div>
+        <Ingredients list={sp.ingredients} />
+        <div class="dim small">{sp.levels[0].description}</div>
+        <div class="dim small">{statLine(sp.levels[0])}</div>
+        {sp.upgrades.map((u, i) => (
+          <div key={i} class="dim small">
+            + {gemName(u.family, u.grade)} → {sp.levels[i + 1].name}
+          </div>
+        ))}
+      </div>
+    );
   };
   return (
     <div class="modal" onClick={() => ctl.toggleCodex(false)}>
       <div class="panel codex" onClick={(e) => e.stopPropagation()}>
         <div class="codex-head">
           <h2>Codex</h2>
-          <span class="dim">Special gems form when their ingredients are unearthed in the same round.</span>
+          <span class="dim">Forge specials from gems unearthed together, or between waves from gems already on the board.</span>
           <button class="icon" onClick={() => ctl.toggleCodex(false)}>
             ✕
           </button>
         </div>
-        <div class="grid">
-          {SPECIALS.map((sp) => {
-            const have = s.pending.length ? counts(sp.ingredients) : 0;
-            const status = have === sp.ingredients.length ? 'ready' : have === sp.ingredients.length - 1 && have > 0 ? 'near' : '';
-            return (
-              <div key={sp.id} class={`recipe ${status}`}>
-                <div class="rhead">
-                  <GemDot spec={{ family: sp.family, grade: 4 }} special={sp.id} />
-                  <b>{sp.levels[0].name}</b>
-                  {status === 'ready' && <span class="chip good">Ready</span>}
-                  {status === 'near' && <span class="chip">One away</span>}
-                </div>
-                <div class="ings">
-                  {sp.ingredients.map((g, i) => (
-                    <span key={i} class="ing">
-                      <GemDot spec={g} />
-                      {gemName(g.family, g.grade)}
-                    </span>
-                  ))}
-                </div>
-                <div class="dim small">{sp.levels[0].description}</div>
-                <div class="dim small">{statLine(sp.levels[0])}</div>
-                {sp.upgrades.map((u, i) => (
-                  <div key={i} class="dim small">
-                    + {gemName(u.family, u.grade)} → {sp.levels[i + 1].name}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+        <div class="grid">{SPECIALS.filter((sp) => !sp.master).map(card)}</div>
+        <h3 class="codex-sub">Master gems</h3>
+        <p class="dim small">Forged between waves from special gems on the board.</p>
+        <div class="grid">{SPECIALS.filter((sp) => sp.master).map(card)}</div>
       </div>
     </div>
   );
